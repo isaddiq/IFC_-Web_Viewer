@@ -1,0 +1,1630 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="assets/css/app.css" />
+    <title>BIMXR – IFC Viewer</title>
+    <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+    <script>
+      AFRAME.registerComponent("scene-helpers", {
+        schema: {
+          grid: { default: true },
+          axes: { default: true },
+          gridSize: { default: 500 },
+          gridDivisions: { default: 100 },
+          axesSize: { default: 5 },
+        },
+        init: function () {
+          var s = this.el.object3D;
+          if (this.data.grid) {
+            var grid = new THREE.GridHelper(
+              this.data.gridSize,
+              this.data.gridDivisions,
+              0x888888,
+              0xcccccc,
+            );
+            grid.position.y = -0.01;
+            s.add(grid);
+          }
+          if (this.data.axes) {
+            var axes = new THREE.AxesHelper(this.data.axesSize);
+            axes.position.y = 0.02;
+            s.add(axes);
+          }
+        },
+      });
+
+      // Orbit / 3D-Viewer controls
+      AFRAME.registerComponent("viewer-orbit", {
+        schema: {
+          enabled: { default: false },
+        },
+        init() {
+          this._phi = Math.PI / 3;
+          this._theta = -Math.PI / 4;
+          this._tx = 0;
+          this._ty = 0;
+          this._tz = 0;
+          this._r = 25;
+          this._orbitDrag = false;
+          this._panDrag = false;
+          this._px = 0;
+          this._py = 0;
+          this._savedRigPos = null;
+          this._animRaf = null;
+
+          this._onMD = (e) => {
+            if (!this.data.enabled) return;
+            if (e.button === 0) {
+              // Left click: record start but don't start orbiting yet (need drag threshold)
+              this._pendingOrbit = true;
+              this._orbitDrag = false;
+              this._startX = e.clientX;
+              this._startY = e.clientY;
+              this._px = e.clientX;
+              this._py = e.clientY;
+            } else if (e.button === 2) {
+              this._orbitDrag = true;
+              this._px = e.clientX;
+              this._py = e.clientY;
+              e.preventDefault();
+            } else if (e.button === 1) {
+              this._panDrag = true;
+              this._px = e.clientX;
+              this._py = e.clientY;
+              e.preventDefault();
+            }
+          };
+          this._onMM = (e) => {
+            if (!this.data.enabled) return;
+            // Check drag threshold for left-click orbit
+            if (this._pendingOrbit && !this._orbitDrag) {
+              const dxT = e.clientX - this._startX,
+                dyT = e.clientY - this._startY;
+              if (Math.abs(dxT) > 3 || Math.abs(dyT) > 3) {
+                this._orbitDrag = true;
+                this._pendingOrbit = false;
+                this._px = e.clientX;
+                this._py = e.clientY;
+              }
+              return;
+            }
+            if (!this._orbitDrag && !this._panDrag) return;
+            const dx = e.clientX - this._px,
+              dy = e.clientY - this._py;
+            this._px = e.clientX;
+            this._py = e.clientY;
+            if (this._orbitDrag) {
+              this._theta -= dx * 0.005;
+              this._phi = Math.max(
+                0.05,
+                Math.min(Math.PI - 0.05, this._phi - dy * 0.005),
+              );
+              this._cancelAnim();
+              this._applyTransform();
+            } else if (this._panDrag) {
+              const spd = this._r / 800;
+              const ct = Math.cos(this._theta),
+                st = Math.sin(this._theta);
+              this._tx -= dx * spd * ct;
+              this._tz += dx * spd * st;
+              this._ty += dy * spd;
+              this._cancelAnim();
+              this._applyTransform();
+            }
+          };
+          this._onMU = (e) => {
+            if (e.button === 0) {
+              // If we never exceeded drag threshold, it was a click — let it pass through
+              if (this._pendingOrbit && !this._orbitDrag) {
+                // Fire element inspection via click_act
+                if (
+                  typeof currentMouseMove !== "undefined" &&
+                  typeof click_act === "function"
+                ) {
+                  click_act(e, currentMouseMove);
+                }
+              }
+              this._orbitDrag = false;
+              this._pendingOrbit = false;
+            }
+            if (e.button === 2) this._orbitDrag = false;
+            if (e.button === 1) this._panDrag = false;
+          };
+          this._onWH = (e) => {
+            if (!this.data.enabled) return;
+            e.preventDefault();
+            const factor = e.shiftKey ? 0.01 : 0.05;
+            this._r = Math.max(1, Math.min(800, this._r + e.deltaY * factor));
+            this._cancelAnim();
+            this._applyTransform();
+          };
+          this._onCM = (e) => {
+            if (this.data.enabled) e.preventDefault();
+          };
+          document.addEventListener("mousedown", this._onMD);
+          document.addEventListener("mousemove", this._onMM);
+          document.addEventListener("mouseup", this._onMU);
+          document.addEventListener("wheel", this._onWH, { passive: false });
+          document.addEventListener("contextmenu", this._onCM);
+        },
+        _cancelAnim() {
+          if (this._animRaf) {
+            cancelAnimationFrame(this._animRaf);
+            this._animRaf = null;
+          }
+        },
+        recenter() {
+          const world = document.querySelector("#a_world")?.object3D;
+          if (!world) return;
+          const box = new THREE.Box3().setFromObject(world);
+          if (box.isEmpty()) return;
+          const c = box.getCenter(new THREE.Vector3());
+          const sz = box.getSize(new THREE.Vector3());
+          this._tx = c.x;
+          this._ty = c.y;
+          this._tz = c.z;
+          this._r = Math.max(10, sz.length() * 0.75);
+          this._applyTransform();
+        },
+        goToView(theta, phi, duration) {
+          const t0 = this._theta,
+            p0 = this._phi,
+            ts = performance.now();
+          let dt = theta - t0;
+          while (dt > Math.PI) dt -= 2 * Math.PI;
+          while (dt < -Math.PI) dt += 2 * Math.PI;
+          const dp = phi - p0,
+            _this = this;
+          function step(now) {
+            const raw = Math.min(1, (now - ts) / (duration || 450));
+            const ease = raw < 0.5 ? 2 * raw * raw : -1 + (4 - 2 * raw) * raw;
+            _this._theta = t0 + dt * ease;
+            _this._phi = Math.max(
+              0.05,
+              Math.min(Math.PI - 0.05, p0 + dp * ease),
+            );
+            _this._applyTransform();
+            if (raw < 1) _this._animRaf = requestAnimationFrame(step);
+            else _this._animRaf = null;
+          }
+          this._cancelAnim();
+          this._animRaf = requestAnimationFrame(step);
+        },
+        update(old) {
+          if (this.data.enabled === old.enabled) return;
+          const cam = document.querySelector("#camera");
+          const rig = document.querySelector("#cameraRig");
+          const wrap = document.getElementById("view-cube-wrap");
+          if (this.data.enabled) {
+            this._savedRigPos = rig.object3D.position.clone();
+            const world = document.querySelector("#a_world")?.object3D;
+            if (world) {
+              const box = new THREE.Box3().setFromObject(world);
+              if (!box.isEmpty()) {
+                const c = box.getCenter(new THREE.Vector3());
+                const sz = box.getSize(new THREE.Vector3());
+                this._tx = c.x;
+                this._ty = c.y;
+                this._tz = c.z;
+                this._r = Math.max(10, sz.length() * 0.75);
+              }
+            }
+            cam.setAttribute("new-wasd-controls", "enabled", false);
+            cam.setAttribute("look-controls", "enabled", false);
+            try {
+              cam.removeAttribute("simple-navmesh-constraint");
+            } catch (_) {}
+            cam.setAttribute("position", "0 0 0");
+            cam.setAttribute("rotation", "0 0 0");
+            if (wrap) wrap.style.display = "block";
+            this._applyTransform();
+          } else {
+            cam.setAttribute("new-wasd-controls", "enabled", true);
+            cam.setAttribute("look-controls", "enabled", true);
+            try {
+              cam.setAttribute(
+                "simple-navmesh-constraint",
+                "navmesh: .navmesh;",
+              );
+            } catch (_) {}
+            cam.setAttribute("position", "0 1.6 0");
+            cam.setAttribute("rotation", "0 0 0");
+            rig.object3D.rotation.set(0, 0, 0);
+            if (this._savedRigPos)
+              rig.object3D.position.copy(this._savedRigPos);
+            if (wrap) wrap.style.display = "none";
+          }
+        },
+        _applyTransform() {
+          const tx = this._tx,
+            ty = this._ty,
+            tz = this._tz;
+          const x = tx + this._r * Math.sin(this._phi) * Math.sin(this._theta);
+          const y = ty + this._r * Math.cos(this._phi);
+          const z = tz + this._r * Math.sin(this._phi) * Math.cos(this._theta);
+          const rig = document.querySelector("#cameraRig");
+          rig.object3D.position.set(x, y, z);
+          rig.object3D.lookAt(2 * x - tx, 2 * y - ty, 2 * z - tz);
+          const cube = document.getElementById("view-cube");
+          if (cube) {
+            const rx = (((Math.PI / 2 - this._phi) * 180) / Math.PI).toFixed(2);
+            const ry = ((-this._theta * 180) / Math.PI).toFixed(2);
+            cube.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+          }
+        },
+        remove() {
+          document.removeEventListener("mousedown", this._onMD);
+          document.removeEventListener("mousemove", this._onMM);
+          document.removeEventListener("mouseup", this._onMU);
+          document.removeEventListener("wheel", this._onWH);
+          document.removeEventListener("contextmenu", this._onCM);
+        },
+      });
+    </script>
+    <script src="assets/js/bundle.js"></script>
+    <script src="assets/js/jquery.js"></script>
+    <script src="assets/js/simple-navmesh-constraint.js"></script>
+    <script src="assets/js/wasd.js"></script>
+    <script src="assets/js/cursor_click.js"></script>
+    <script src="assets/js/select.js"></script>
+    <script src="assets/js/overlay.js"></script>
+    <script src="assets/js/buttons.js"></script>
+    <script async src="assets/js/opencv.js" type="text/javascript"></script>
+    <script>
+      if (!window.Promise) window.Promise = { prototype: null };
+    </script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.min.js"
+      integrity="sha512-ToRWKKOvhBSS8EtqSflysM/S7v9bB9V0X3B1+E7xo7XZBEZCPL3VX5SFIp8zxY19r7Sz0svqQVbAOx+QcLQSAQ=="
+      crossorigin="anonymous"
+    ></script>
+    <script src="assets/js/malgun-normal.js"></script>
+  </head>
+
+  <body>
+    <canvas id="three-canvas"></canvas>
+    <a-scene
+      id="a_scene"
+      background="color: #d0e8f5"
+      fog="type: linear; color: #c9e8f9; near: 80; far: 300"
+      cursor="rayOrigin: mouse; fuse: false;"
+      raycaster="objects: .raycastable"
+      vr-mode-ui="enabled: false"
+      class="a-enter-vr"
+      webxr="optionalFeatures: dom-overlay, hit-test; overlayElement: #overlay"
+      embedded
+      scene-helpers
+      viewer-orbit
+    >
+      <a-entity
+        class="navmesh raycastable"
+        id="a_world"
+        position="0 0 0"
+        rotation="0 0 0"
+      ></a-entity>
+
+      <!-- Sky -->
+      <a-sky color="#87CEEB"></a-sky>
+
+      <!-- Lighting -->
+      <a-light type="ambient" color="#ffffff" intensity="0.8"></a-light>
+      <a-light
+        type="directional"
+        color="#fff5e0"
+        intensity="1.2"
+        position="8 15 5"
+      ></a-light>
+      <a-light
+        type="directional"
+        color="#cce8ff"
+        intensity="0.3"
+        position="-5 3 -5"
+      ></a-light>
+
+      <a-assets>
+        <img id="replay" src="assets/images/btn-replay.png" />
+        <img id="play" src="assets/images/btn-play.png" />
+        <img id="pause" src="assets/images/btn-pause.png" />
+        <img id="wbtnimg" src="assets/images/btn-forward.png" />
+        <img id="sbtnimg" src="assets/images/btn-backward.png" />
+        <img id="abtnimg" src="assets/images/btn-left.png" />
+        <img id="dbtnimg" src="assets/images/btn-right.png" />
+        <img id="visible" src="assets/images/icon-visible.png" />
+        <img id="invisible" src="assets/images/icon-hidden.png" />
+        <img id="upimg" src="assets/images/btn-up.png" />
+        <img id="downimg" src="assets/images/btn-down.png" />
+        <img id="exitimg" src="assets/images/btn-exit.png" />
+      </a-assets>
+
+      <a-entity
+        id="background"
+        position="0 0 0"
+        geometry="primitive: sphere; radius: 2.0"
+        material="color: red; side: back; shader: flat"
+        scale="10 10 10"
+        visible="false"
+        class="raycastable"
+      ></a-entity>
+
+      <a-entity id="cameraRig">
+        <a-camera
+          id="camera"
+          position="0 1.6 0"
+          new-wasd-controls="acceleration:12;navmesh:.navmesh;"
+          simple-navmesh-constraint="navmesh: .navmesh;"
+          look-controls="pointerLockEnabled: false"
+        >
+          <a-entity id="totalPanel" position="-3 0 0" visible="false">
+            <a-entity
+              id="wasdPanel"
+              position="4 -2.4 0"
+              raycaster="objects: .raycastable"
+            >
+              <a-plane
+                overlay
+                id="panel"
+                position="1.5 0.1 -10"
+                rotation="0 0 0"
+                width="3.2"
+                height="2.3"
+                material="color: black; transparent: false; alphaTest: 0.5; opacity: 1"
+                raycaster="objects: .raycastable"
+              ></a-plane>
+              <a-plane
+                overlay
+                id="panelBackground"
+                position="1.5 0.1 -10.01"
+                rotation="0 0 0"
+                width="3.2"
+                height="2.2"
+                material="color: Black; transparent: false; alphaTest: 0.5; opacity: 0.99"
+                raycaster="objects: .raycastable"
+              ></a-plane>
+              <a-box
+                overlay
+                position="1 0 -10"
+                rotation="0 0 0"
+                id="wbtn"
+                wcomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#wbtnimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+              <a-box
+                overlay
+                position="1 -0.7 -10"
+                rotation="0 0 0"
+                id="sbtn"
+                scomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#sbtnimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+              <a-box
+                overlay
+                position="0.3 -0.7 -10"
+                rotation="0 0 0"
+                id="abtn"
+                acomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#abtnimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+              <a-box
+                overlay
+                position="1.7 -0.7 -10"
+                rotation="0 0 0"
+                id="dbtn"
+                dcomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#dbtnimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+              <a-box
+                overlay
+                position="2.6 0.1 -10"
+                rotation="0 0 0"
+                id="upbtn"
+                upcomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#upimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+              <a-box
+                overlay
+                position="2.6 -0.7 -10"
+                rotation="0 0 0"
+                id="dnbtn"
+                dncomponent
+                material="color: white; transparent: true; alphaTest: 0.5; opacity:0.6"
+                width="0.5"
+                height="0.5"
+                depth="0.2"
+                animation__mouseenter="property: components.material.material.opacity; to: 1; startEvents: mouseenter; dur: 500"
+                animation__mouseleave="property: components.material.material.opacity; to: 0.6; startEvents: mouseleave; dur: 500"
+                class="raycastable"
+              >
+                <a-image
+                  overlay
+                  src="#downimg"
+                  width="0.5"
+                  height="0.5"
+                  position="0 0 0.03"
+                ></a-image>
+              </a-box>
+            </a-entity>
+          </a-entity>
+        </a-camera>
+      </a-entity>
+
+      <a-entity
+        cursor
+        cursor_click
+        raycaster="objects: .raycastable"
+      ></a-entity>
+      <a-entity
+        id="leftHand"
+        cursor_click
+        hand-controls="hand: left;"
+        laser-controls="hand: left"
+        raycaster="objects: .raycastable"
+        oculus-touch-controls="hand: left"
+        thumbstick-logging
+      ></a-entity>
+      <a-entity
+        id="rightHand"
+        cursor_click
+        hand-controls="hand: right;"
+        laser-controls="hand: right"
+        raycaster="objects: .raycastable"
+        oculus-touch-controls="hand: right"
+        thumbstick-logging
+      ></a-entity>
+    </a-scene>
+
+    <!-- ── WebXR Overlay ── -->
+    <div id="overlay">
+      <!-- ══ TOP MENU BAR ══ -->
+      <div class="ui-menubar">
+        <div class="ui-brand">&#x2B21; BIMXR</div>
+        <div class="ui-menubar-center">
+          <span id="model-filename" class="ui-filename">No model loaded</span>
+          <span id="load-status" class="load-status-info"
+            >Ready to open IFC</span
+          >
+        </div>
+        <div class="ui-menubar-right">
+          <input
+            type="file"
+            id="file-input"
+            accept=".ifc"
+            style="display: none"
+          />
+          <button
+            id="exitXR"
+            type="button"
+            class="ui-menu-btn ui-xr-btn"
+            style="display: none"
+          >
+            <span class="btn-icon" aria-hidden="true">&#10006;</span>
+            <span>Exit XR</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ══ RIBBON ══ -->
+      <div class="ui-ribbon">
+        <div class="ribbon-tabs">
+          <button
+            class="ribbon-tab active"
+            onclick="showRibbonTab('file', this)"
+          >
+            <span class="btn-icon" aria-hidden="true">&#128193;</span>
+            File
+          </button>
+          <button class="ribbon-tab" onclick="showRibbonTab('view', this)">
+            <span class="btn-icon" aria-hidden="true">&#9635;</span>
+            View
+          </button>
+          <button class="ribbon-tab" onclick="showRibbonTab('navigate', this)">
+            <span class="btn-icon" aria-hidden="true">&#10148;</span>
+            Navigate
+          </button>
+          <button
+            class="ribbon-tab"
+            onclick="showRibbonTab('visibility', this)"
+          >
+            <span class="btn-icon" aria-hidden="true">&#128065;</span>
+            Visibility
+          </button>
+          <button class="ribbon-tab" onclick="showRibbonTab('systems', this)">
+            <span class="btn-icon" aria-hidden="true">&#9881;</span>
+            Systems
+          </button>
+        </div>
+
+        <!-- Tab: File -->
+        <div class="ribbon-panel active" id="ribbon-file">
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Model</div>
+            <button class="rb-btn" onclick="openIfcFilePicker()">
+              <span class="rb-icon">&#128194;</span>Open IFC File
+            </button>
+            <button class="rb-btn" onclick="openSampleFile()">
+              <span class="rb-icon">&#127970;</span>Open Sample File
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab: View -->
+        <div class="ribbon-panel" id="ribbon-view">
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Mode</div>
+            <button
+              class="rb-btn active"
+              id="btn-3d-viewer"
+              onclick="setViewerMode('3d')"
+            >
+              <span class="rb-icon">&#9678;</span>3D Orbit
+            </button>
+            <button
+              class="rb-btn"
+              id="btn-walker"
+              onclick="setViewerMode('walk')"
+            >
+              <span class="rb-icon">&#9654;</span>Walk
+            </button>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Camera</div>
+            <button class="rb-btn" onclick="vcSnap(-0.7854, 1.0472)">
+              <span class="rb-icon">&#8962;</span>Home
+            </button>
+            <button class="rb-btn" onclick="vcSnap(0, 0.05)">
+              <span class="rb-icon">&#8857;</span>Top
+            </button>
+            <button class="rb-btn" onclick="vcSnap(0, 1.5708)">
+              <span class="rb-icon">&#9633;</span>Front
+            </button>
+            <button class="rb-btn" onclick="vcSnap(1.5708, 1.5708)">
+              <span class="rb-icon">&#9633;</span>Right
+            </button>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Background</div>
+            <div class="rb-color-row">
+              <input
+                type="color"
+                id="backgroundColorPicker"
+                title="Scene background"
+              />
+              <button class="rb-btn-sm" id="reset">
+                <span class="btn-icon" aria-hidden="true">&#8634;</span>Reset
+              </button>
+            </div>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Panels</div>
+            <button class="rb-btn" onclick="toggleLeftPanel()">
+              <span class="rb-icon">&#9776;</span>Schema
+            </button>
+            <button class="rb-btn" id="spaceInfobtn">
+              <span class="rb-icon">&#9432;</span>Spaces
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab: Navigate -->
+        <div class="ribbon-panel" id="ribbon-navigate">
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Floor</div>
+            <div class="rb-select-row">
+              <select name="floors" id="floors">
+                <option value="select">Loading floors…</option>
+              </select>
+              <button class="rb-go" onclick="setFloor()">
+                <span class="btn-icon" aria-hidden="true">&#10140;</span>Go
+              </button>
+            </div>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Position</div>
+            <button class="rb-btn" id="positioning">
+              <span class="rb-icon">&#8942;</span>Adjust
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab: Visibility -->
+        <div class="ribbon-panel" id="ribbon-visibility">
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Inspect</div>
+            <label class="rb-toggle"
+              ><input type="checkbox" id="infoCheckbox" checked /> Click to
+              inspect</label
+            >
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Slabs &amp; Ceilings</div>
+            <label class="rb-toggle"
+              ><input type="checkbox" id="slabCheckbox" /> Hide</label
+            >
+          </div>
+        </div>
+
+        <!-- Tab: Systems -->
+        <div class="ribbon-panel" id="ribbon-systems">
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">MEP</div>
+            <div class="rb-select-row">
+              <select name="MEPLV" id="MEPLV">
+                <option value="0">Reset</option>
+                <option value="1">All</option>
+              </select>
+              <button class="rb-go" onclick="setDistributionLv()">
+                <span class="btn-icon" aria-hidden="true">&#128065;</span>Show
+              </button>
+            </div>
+          </div>
+          <div class="ribbon-sep"></div>
+          <div class="ribbon-group">
+            <div class="ribbon-group-label">Beams</div>
+            <div class="rb-select-row">
+              <select name="ReferenceLevel" id="ReferenceLevel">
+                <option value="0">Reset</option>
+                <option value="1">All</option>
+              </select>
+              <button class="rb-go" onclick="setBeamLv()">
+                <span class="btn-icon" aria-hidden="true">&#128065;</span>Show
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- end ribbon -->
+
+      <!-- ══ WORKSPACE (left | center | right) ══ -->
+      <div class="ui-workspace">
+        <!-- LEFT PANEL -->
+        <div class="ui-left-panel" id="leftPanel">
+          <div class="panel-section panel-section--grow">
+            <div class="panel-section-head">IFC Schema</div>
+            <div class="panel-section-body" id="schemaTree">
+              <div class="panel-placeholder">
+                Load a model to view the IFC structure
+              </div>
+            </div>
+          </div>
+          <div
+            class="panel-resize-handle"
+            id="leftPanelResizeHandle"
+            title="Drag to resize schema panel"
+            aria-hidden="true"
+          ></div>
+        </div>
+
+        <!-- CENTER -->
+        <div class="ui-center" id="uiCenter">
+          <div id="view-cube-wrap">
+            <div class="vc-viewport">
+              <div id="view-cube">
+                <div class="vc-face vc-top" onclick="vcSnap(0, 0.05)">TOP</div>
+                <div class="vc-face vc-bottom" onclick="vcSnap(0, 3.09)">
+                  BTM
+                </div>
+                <div class="vc-face vc-front" onclick="vcSnap(0, 1.5708)">
+                  FRONT
+                </div>
+                <div class="vc-face vc-back" onclick="vcSnap(3.1416, 1.5708)">
+                  BACK
+                </div>
+                <div class="vc-face vc-right" onclick="vcSnap(1.5708, 1.5708)">
+                  RIGHT
+                </div>
+                <div class="vc-face vc-left" onclick="vcSnap(-1.5708, 1.5708)">
+                  LEFT
+                </div>
+              </div>
+            </div>
+            <div class="vc-btns">
+              <button class="vc-btn" onclick="vcSnap(-0.7854, 1.0472)">
+                <span class="btn-icon" aria-hidden="true">&#8962;</span>Home
+              </button>
+              <button class="vc-btn" onclick="vcSnap(0, 0.05)">
+                <span class="btn-icon" aria-hidden="true">&#8857;</span>Top
+              </button>
+            </div>
+            <div class="vc-hint">
+              Drag&#160;&#183;&#160;Mid-pan&#160;&#183;&#160;Scroll&#160;zoom
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT PANEL (properties) -->
+        <div class="ui-right-panel" id="rightPanel">
+          <div class="panel-section panel-section--grow">
+            <div class="panel-section-head">
+              Properties
+              <button class="panel-close-btn" onclick="closeRightPanel()">
+                &#10005;
+              </button>
+            </div>
+            <div class="prop-summary">
+              <span class="prop-type-badge" id="prpValTypeInfo"></span>
+              <div class="prop-meta" id="prpValCategoryInfo"></div>
+              <div class="prop-meta" id="prpValHeightInfo"></div>
+            </div>
+            <div
+              class="panel-section-body panel-section-body--scroll"
+              id="psetTables"
+            >
+              <div class="panel-placeholder" id="propPlaceholder">
+                Click an element to inspect
+              </div>
+            </div>
+            <p id="prpValTypeIdInfo" style="display: none"></p>
+            <p id="prpValThicknessInfo" style="display: none"></p>
+            <p id="prpValExtentInfo" style="display: none"></p>
+          </div>
+          <!-- Space info sub-panel -->
+          <div class="panel-section" id="spaceInfobox" style="display: none">
+            <div class="panel-section-head">
+              Space Info
+              <button class="panel-close-btn" onclick="closeSpacePanel()">
+                &#10005;
+              </button>
+            </div>
+            <div class="panel-section-body">
+              <p id="prpValNameinfo"></p>
+              <p id="prpValLevelinfo"></p>
+              <p id="prpValCeilingFinishinfo"></p>
+              <p id="prpValWallFinishinfo"></p>
+              <p id="prpValFloorFinishinfo"></p>
+              <p id="prpValFinishChangeinfo"></p>
+              <p id="prpValFinishLastinfo"></p>
+              <p id="prpValFinishCheckinfo"></p>
+              <p id="prpValFinishProductinfo"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- end workspace -->
+
+      <!-- compat shim: cursor_click.js uses #psetInfo for panel-open class;
+           ifcMemo* elements are needed by cursor_click.js + memo.js -->
+      <div id="psetInfo" style="display: none"></div>
+      <span id="ifcMemoLevelInfo" style="display: none"></span>
+      <span id="ifcMemoTypeInfo" style="display: none"></span>
+    </div>
+    <!-- end #overlay -->
+
+    <script>
+      // ── Globals ───────────────────────────────────────────────────────
+      window.scene = null;
+      window.space_subset = null;
+      window.ifcSpatialStructure = null;
+      window.activeIfcModel = null;
+      window.activeIfcLoadToken = 0;
+
+      const ifcModels = [];
+      const ifcLoader = new IFCLoader();
+      const slabSeeThrough = document.querySelector("#slabCheckbox");
+      const dstrbtnSeeThrough = document.querySelector("#distributionCheckbox");
+      const beambtnSeeThrough = document.querySelector("#beamCheckbox");
+      var space_subset = null;
+      var type_subsets = new Map();
+
+      window.ifcLoader = ifcLoader;
+      ifcLoader.ifcManager.setWasmPath("");
+
+      window.getActiveModelId = function () {
+        return (
+          window.activeIfcModel?.modelID ??
+          ifcModels[ifcModels.length - 1]?.modelID ??
+          null
+        );
+      };
+
+      function getActiveModelId() {
+        return window.getActiveModelId();
+      }
+
+      function closeIfcModel(ifcModel) {
+        if (!ifcModel || ifcModel.modelID == null) return;
+        try {
+          ifcLoader.ifcManager.close(ifcModel.modelID, window.scene);
+        } catch (error) {
+          console.warn("close IFC model error:", error);
+        }
+      }
+
+      const transparent_mat = new MeshLambertMaterial({
+        transparent: true,
+        opacity: 0.3,
+      });
+      const spaceMat = new MeshLambertMaterial({
+        transparent: true,
+        opacity: 0,
+      });
+
+      // ── UI helpers ────────────────────────────────────────────────────
+      const loadStatusEl = document.getElementById("load-status");
+      const modelFilenameEl = document.getElementById("model-filename");
+      const fileInputEl = document.getElementById("file-input");
+
+      function setLoadStatus(msg, type) {
+        loadStatusEl.textContent = msg;
+        loadStatusEl.className = "load-status-" + (type || "info");
+      }
+
+      function setModelFilename(name) {
+        modelFilenameEl.textContent = name;
+      }
+
+      window.openIfcFilePicker = function () {
+        fileInputEl.value = "";
+        fileInputEl.click();
+      };
+
+      window.openSampleFile = function () {
+        if (!window.scene) {
+          setLoadStatus("Viewer is still loading…", "info");
+          return;
+        }
+
+        fileInputEl.value = "";
+        clearModel();
+        loadIFC("assets/models/architectural.ifc", "architectural.ifc");
+      };
+
+      // ── View Mode toggle ──────────────────────────────────────────────
+      window.setViewerMode = function (mode) {
+        const sceneEl = document.querySelector("a-scene");
+        const isOrbit = mode === "3d";
+        sceneEl.setAttribute("viewer-orbit", "enabled", isOrbit);
+        document
+          .getElementById("btn-3d-viewer")
+          .classList.toggle("active", isOrbit);
+        document
+          .getElementById("btn-walker")
+          .classList.toggle("active", !isOrbit);
+      };
+
+      window.vcSnap = function (theta, phi) {
+        const oc = document.querySelector("a-scene").components["viewer-orbit"];
+        if (oc && oc.data.enabled) oc.goToView(theta, phi, 450);
+      };
+
+      // ── Floor teleport ────────────────────────────────────────────────
+      window.setFloor = function () {
+        const select = document.getElementsByName("floors")[0].value;
+        if (!select || select === "select") return;
+        const camera = document.querySelector("#camera");
+        const pos = camera.getAttribute("position");
+        const navmesh = camera.components?.["simple-navmesh-constraint"];
+        if (navmesh) navmesh.lastPosition = null;
+        if (window.storeyData) {
+          const storey = window.storeyData.get(String(select));
+          if (storey != null) {
+            const mpos = document
+              .querySelector("#a_world")
+              .getAttribute("position");
+            const modelY =
+              typeof mpos === "object"
+                ? mpos.y || 0
+                : parseFloat((mpos + "").split(" ")[1] || 0);
+            const targetY = (storey.elevation || 0) + modelY + 1.6;
+            camera.setAttribute("position", { x: pos.x, y: targetY, z: pos.z });
+          }
+        }
+      };
+
+      // ── Material helpers ──────────────────────────────────────────────
+      function setTypeTransparent(type, isTransparent) {
+        let subset = type_subsets.get(type);
+        let isSpace = type === "IFCSPACE";
+        let isSlab = type === "IFCSLAB" || type === "IFCCOVERING";
+        if (subset != null) {
+          if (subset["_old_material"] == undefined)
+            subset["_old_material"] = subset.material;
+          if (isTransparent) {
+            if (isSpace) subset.material = spaceMat;
+            else if (isSlab) subset.material = transparent_mat;
+            else subset.visible = false;
+          } else {
+            if (isSpace || isSlab) subset.material = subset["_old_material"];
+            else subset.visible = true;
+          }
+        }
+      }
+
+      function setSlabTransparent(type, isTransparent) {
+        let subset = type_subsets.get(type);
+        let isSlab = type === "IFCSLAB" || type === "IFCCOVERING";
+        if (subset != null) {
+          if (subset["_old_material"] == undefined)
+            subset["_old_material"] = subset.material;
+          if (isTransparent) {
+            if (isSlab) subset.material = spaceMat;
+            else subset.visible = false;
+          } else {
+            if (isSlab) subset.material = subset["_old_material"];
+            else subset.visible = true;
+          }
+        }
+      }
+
+      // ── Schema check for user-uploaded files ──────────────────────────
+      function isSchemaSupported(schema) {
+        if (!schema) return true;
+        if (/^IFC2X3/i.test(schema)) return true;
+        if (/^IFC4/i.test(schema)) return true;
+        return false;
+      }
+
+      async function checkIfcSchema(file) {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const match = e.target.result.match(
+              /FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'/,
+            );
+            resolve(match ? match[1].toUpperCase() : null);
+          };
+          reader.readAsText(file.slice(0, 4096));
+        });
+      }
+
+      // ── IFC load helpers (shared) ─────────────────────────────────────
+      async function collectNodes(node, map, stMap, typeMap) {
+        const modelID = getActiveModelId();
+        if (modelID == null || node.expressID == null) return;
+        let type = await ifcLoader.ifcManager.getIfcType(
+          modelID,
+          node.expressID,
+        );
+        if (!typeMap.has(type)) typeMap.set(type, []);
+        typeMap.get(type).push(node.expressID);
+        if (node.children != null)
+          for (let ch of node.children)
+            await collectNodes(ch, map, stMap, typeMap);
+      }
+
+      var stMap = new Map();
+
+      async function loadFloors() {
+        const modelID = getActiveModelId();
+        if (modelID == null) return;
+        let ifcProject =
+          await ifcLoader.ifcManager.getSpatialStructure(modelID);
+        var map = new Map();
+        var typeMap = new Map();
+        async function walkTree(node) {
+          if (!node) return;
+          if (node.expressID != null)
+            await collectNodes(node, map, stMap, typeMap);
+          if (node.children) for (let ch of node.children) await walkTree(ch);
+        }
+        var startNode =
+          ifcProject.children?.[0]?.children?.[0] ??
+          ifcProject.children?.[0] ??
+          ifcProject;
+        await walkTree(startNode);
+        for (let [key, value] of typeMap) {
+          let subset = ifcLoader.ifcManager.createSubset({
+            modelID,
+            ids: value,
+            scene: window.scene,
+            removePrevious: true,
+            customID: key,
+          });
+          type_subsets.set(key, subset);
+        }
+      }
+
+      async function loadFloorSelect() {
+        const floorsEl = document.getElementById("floors");
+        if (!floorsEl) return;
+        const modelID = getActiveModelId();
+        if (modelID == null) return;
+        const ifcProject =
+          await ifcLoader.ifcManager.getSpatialStructure(modelID);
+        const storeys = [];
+        async function findStoreys(node) {
+          if (!node || node.expressID == null) return;
+          const type = await ifcLoader.ifcManager.getIfcType(
+            modelID,
+            node.expressID,
+          );
+          if (type === "IFCBUILDINGSTOREY") {
+            try {
+              const props = await ifcLoader.ifcManager.getItemProperties(
+                modelID,
+                node.expressID,
+              );
+              const name = props?.Name?.value || `Level ${storeys.length + 1}`;
+              const elevation = props?.Elevation?.value ?? 0;
+              storeys.push({ id: node.expressID, name, elevation });
+            } catch (_) {
+              storeys.push({
+                id: node.expressID,
+                name: `Level ${storeys.length + 1}`,
+                elevation: 0,
+              });
+            }
+          }
+          if (node.children)
+            for (const ch of node.children) await findStoreys(ch);
+        }
+        await findStoreys(ifcProject);
+        if (!storeys.length) {
+          floorsEl.innerHTML =
+            '<option value="select">No floors found</option>';
+          return;
+        }
+        storeys.sort((a, b) => a.elevation - b.elevation);
+        window.storeyData = new Map(storeys.map((s) => [String(s.id), s]));
+        floorsEl.innerHTML =
+          '<option value="select">Select floor\u2026</option>';
+        for (const s of storeys)
+          floorsEl.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+      }
+
+      async function loadDistributionMap() {
+        const modelID = getActiveModelId();
+        if (modelID == null) return;
+        let ifcProject =
+          await ifcLoader.ifcManager.getSpatialStructure(modelID);
+        var distributionMap = new Map();
+        await collectDstrbLv(
+          ifcProject.children[0].children[0],
+          distributionMap,
+          null,
+        );
+        for (let [key, value] of distributionMap) {
+          let subset = ifcLoader.ifcManager.createSubset({
+            modelID,
+            ids: value,
+            scene: window.scene,
+            removePrevious: true,
+            customID: key,
+          });
+          distribution_subsets.set(key, subset);
+        }
+      }
+
+      async function loadBeamMap() {
+        const modelID = getActiveModelId();
+        if (modelID == null) return;
+        let ifcProject =
+          await ifcLoader.ifcManager.getSpatialStructure(modelID);
+        var beamMap = new Map();
+        await collectBeamLv(ifcProject.children[0].children[0], beamMap, null);
+        for (let [key, value] of beamMap) {
+          let subset = ifcLoader.ifcManager.createSubset({
+            modelID,
+            ids: value,
+            scene: window.scene,
+            removePrevious: true,
+            customID: key + " Beam",
+          });
+          beam_subsets.set(key, subset);
+        }
+      }
+
+      // ── After-load finalisation (shared) ─────────────────────────────
+      async function finaliseLoad(filename) {
+        const modelID = getActiveModelId();
+        if (modelID == null) return;
+        try {
+          await loadFloors();
+        } catch (e) {
+          console.warn("loadFloors error:", e);
+        }
+        try {
+          await loadFloorSelect();
+        } catch (e) {
+          console.warn("loadFloorSelect error:", e);
+        }
+        try {
+          await loadDistributionMap();
+        } catch (e) {
+          console.warn("loadDistributionMap error:", e);
+        }
+        try {
+          await loadBeamMap();
+        } catch (e) {
+          console.warn("loadBeamMap error:", e);
+        }
+        try {
+          window.ifcSpatialStructure =
+            await ifcLoader.ifcManager.getSpatialStructure(modelID, true);
+        } catch (e) {
+          console.warn("getSpatialStructure error:", e);
+          window.ifcSpatialStructure = null;
+        }
+
+        let subset = ifcLoader.ifcManager.getSubset(modelID, null, "IFCSPACE");
+        if (subset != null) {
+          space_subset = new THREE.Group();
+          window.space_subset = space_subset;
+          space_subset.matrixWorld = subset.parent.matrixWorld.clone();
+          subset.parent.remove(subset);
+          space_subset.add(subset);
+          subset.updateMatrixWorld();
+          subset.material = subset.material.map(() => spaceMat);
+          // Populate MEP / Beam dropdowns
+          document.getElementById("MEPLV").innerHTML =
+            '<option value="0">Reset</option><option value="1">All</option>';
+          for (let lv of distribution_subsets.keys())
+            document.getElementById("MEPLV").innerHTML +=
+              `<option value="${lv}">${lv}</option>`;
+          document.getElementById("ReferenceLevel").innerHTML =
+            '<option value="0">Reset</option><option value="1">All</option>';
+          for (let lv of beam_subsets.keys())
+            document.getElementById("ReferenceLevel").innerHTML +=
+              `<option value="${lv}">${lv}</option>`;
+        }
+
+        // Centre model at origin
+        const _b = new THREE.Box3().setFromObject(window.scene);
+        if (!_b.isEmpty()) {
+          const _c = _b.getCenter(new THREE.Vector3());
+          document
+            .querySelector("#a_world")
+            .object3D.position.set(-_c.x, -_b.min.y, -_c.z);
+        }
+
+        setModelFilename(filename);
+        setLoadStatus("Model ready.", "ok");
+
+        const orbitComp =
+          document.querySelector("a-scene").components["viewer-orbit"];
+        if (orbitComp) orbitComp.recenter();
+
+        // Refresh left panel
+        if (window.refreshSchemaTree) await refreshSchemaTree();
+
+        initCheckBoxes();
+      }
+
+      // ── Load a URL (sample or blob) ───────────────────────────────────
+      function loadIFC(url, filename) {
+        const loadToken = ++window.activeIfcLoadToken;
+        setLoadStatus("Loading model…", "info");
+        setModelFilename(filename);
+        ifcLoader.load(
+          url,
+          async (ifcModel) => {
+            if (loadToken !== window.activeIfcLoadToken) {
+              closeIfcModel(ifcModel);
+              if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+              return;
+            }
+
+            window.activeIfcModel = ifcModel;
+            ifcModels.length = 0;
+            ifcModels.push(ifcModel);
+
+            try {
+              await finaliseLoad(filename);
+            } finally {
+              if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+            }
+          },
+          undefined,
+          (err) => {
+            if (loadToken !== window.activeIfcLoadToken) return;
+            console.error("IFC load error:", err);
+            setLoadStatus(
+              "Load failed: " + (err?.message ?? String(err)),
+              "error",
+            );
+            if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+          },
+        );
+      }
+
+      // ── Clear previous model before loading a new one ─────────────────
+      function clearModel() {
+        window.activeIfcLoadToken += 1;
+
+        const activeModelID = getActiveModelId();
+        if (typeof mat !== "undefined" && activeModelID != null) {
+          try {
+            ifcLoader.ifcManager.removeSubset(activeModelID, mat);
+          } catch (_) {}
+        }
+
+        ifcModels.forEach((m) => closeIfcModel(m));
+        if (window.scene) {
+          type_subsets.forEach((s) => window.scene.remove(s));
+          if (space_subset) window.scene.remove(space_subset);
+        }
+        type_subsets.clear();
+        distribution_subsets.clear();
+        beam_subsets.clear();
+        space_subset = null;
+        window.space_subset = null;
+        window.ifcSpatialStructure = null;
+        window.activeIfcModel = null;
+        ifcModels.length = 0;
+        window.storeyData = null;
+        stMap.clear();
+        document.getElementById("floors").innerHTML =
+          '<option value="select">Loading floors\u2026</option>';
+        document.getElementById("MEPLV").innerHTML =
+          '<option value="0">Reset</option><option value="1">All</option>';
+        document.getElementById("ReferenceLevel").innerHTML =
+          '<option value="0">Reset</option><option value="1">All</option>';
+        // Close property panel
+        if (window.htmlPsetInfo)
+          window.htmlPsetInfo.classList.remove("panel-open");
+        // Reset left panel
+        const schemaTree = document.getElementById("schemaTree");
+        if (schemaTree)
+          schemaTree.innerHTML =
+            '<div class="panel-placeholder">Load a model to view the IFC structure</div>';
+        if (window.scene) {
+          document.querySelector("#a_world").object3D.position.set(0, 0, 0);
+        }
+        setModelFilename("No model loaded");
+      }
+
+      // ── File input: load user's own IFC ──────────────────────────────
+      fileInputEl.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        setLoadStatus("Checking schema…", "info");
+        const schema = await checkIfcSchema(file);
+        if (schema && !isSchemaSupported(schema)) {
+          setLoadStatus(
+            `Unsupported schema: ${schema}. Supported: IFC2X3, IFC4 and variants.`,
+            "error",
+          );
+          event.target.value = "";
+          return;
+        }
+
+        clearModel();
+        const url = URL.createObjectURL(file);
+        loadIFC(url, file.name);
+      });
+
+      // ── Ribbon tab switcher ───────────────────────────────────────────
+      window.showRibbonTab = function (name, btn) {
+        document
+          .querySelectorAll(".ribbon-tab")
+          .forEach((t) => t.classList.remove("active"));
+        document
+          .querySelectorAll(".ribbon-panel")
+          .forEach((p) => p.classList.remove("active"));
+        btn.classList.add("active");
+        const panel = document.getElementById("ribbon-" + name);
+        if (panel) panel.classList.add("active");
+      };
+
+      // ── Left panel toggle ─────────────────────────────────────────────
+      window.initLeftPanelResize = function () {
+        const panel = document.getElementById("leftPanel");
+        const handle = document.getElementById("leftPanelResizeHandle");
+        const workspace = document.querySelector(".ui-workspace");
+        if (!panel || !handle || !workspace || handle.dataset.bound === "true")
+          return;
+
+        handle.dataset.bound = "true";
+        let isResizing = false;
+
+        const getMaxWidth = () =>
+          Math.min(720, Math.floor(window.innerWidth * 0.55));
+        const stopResize = () => {
+          if (!isResizing) return;
+          isResizing = false;
+          panel.classList.remove("resizing");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+        };
+
+        const onPointerMove = (event) => {
+          if (!isResizing) return;
+          const rect = workspace.getBoundingClientRect();
+          const nextWidth = Math.max(
+            220,
+            Math.min(getMaxWidth(), event.clientX - rect.left),
+          );
+          panel.style.width = `${nextWidth}px`;
+        };
+
+        handle.addEventListener("pointerdown", (event) => {
+          if (panel.classList.contains("collapsed")) return;
+          isResizing = true;
+          panel.classList.add("resizing");
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+          handle.setPointerCapture?.(event.pointerId);
+          event.preventDefault();
+        });
+
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", stopResize);
+        window.addEventListener("pointercancel", stopResize);
+      };
+
+      window.toggleLeftPanel = function () {
+        document.getElementById("leftPanel").classList.toggle("collapsed");
+      };
+
+      // ── Right panel helpers ───────────────────────────────────────────
+      window.openRightPanel = function () {
+        document.getElementById("rightPanel").classList.add("open");
+        const ph = document.getElementById("propPlaceholder");
+        if (ph) ph.style.display = "none";
+      };
+      window.closeRightPanel = function () {
+        document.getElementById("rightPanel").classList.remove("open");
+      };
+      window.closeSpacePanel = function () {
+        document.getElementById("spaceInfobox").style.display = "none";
+      };
+
+      // ── Refresh left schema tree after model loads ────────────────────
+      function escapeSchemaText(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function getSchemaNodeLabel(node) {
+        return (
+          node?.Name?.value ||
+          node?.LongName?.value ||
+          node?.name ||
+          node?.type ||
+          (node?.expressID != null ? `#${node.expressID}` : "Unnamed")
+        );
+      }
+
+      function getSchemaNodeMeta(node) {
+        const parts = [];
+        if (node?.type) parts.push(node.type);
+        if (node?.expressID != null) parts.push(`#${node.expressID}`);
+        return parts.join(" ");
+      }
+
+      function getSchemaNodeIcon(type, hasChildren) {
+        switch (type) {
+          case "IFCPROJECT":
+            return "&#128193;";
+          case "IFCSITE":
+            return "&#127959;";
+          case "IFCBUILDING":
+            return "&#127970;";
+          case "IFCBUILDINGSTOREY":
+            return "&#9643;";
+          case "IFCSPACE":
+            return "&#11036;";
+          default:
+            return hasChildren ? "&#128449;" : "&#9642;";
+        }
+      }
+
+      function renderSchemaNode(node) {
+        if (!node) return "";
+
+        const children = Array.isArray(node.children)
+          ? node.children.filter(Boolean)
+          : [];
+        const hasChildren = children.length > 0;
+        const label = escapeSchemaText(getSchemaNodeLabel(node));
+        const meta = escapeSchemaText(getSchemaNodeMeta(node));
+        const icon = getSchemaNodeIcon(node.type, hasChildren);
+        const childHtml = hasChildren
+          ? `<div class="tree-children">${children
+              .map((child) => renderSchemaNode(child))
+              .join("")}</div>`
+          : "";
+
+        return `
+          <div class="tree-node" data-express-id="${node.expressID ?? ""}">
+            <div class="tree-header"${hasChildren ? ' onclick="toggleSchemaGroup(this)"' : ""}>
+              <span class="tree-toggle ${hasChildren ? "expanded" : "leaf"}">&#9654;</span>
+              <span class="tree-icon">${icon}</span>
+              <span class="tree-label">${label}</span>
+              <span class="tree-count">${meta}</span>
+            </div>
+            ${childHtml}
+          </div>`;
+      }
+
+      window.refreshSchemaTree = async function () {
+        const tree = document.getElementById("schemaTree");
+        if (!tree) return;
+        const modelID = getActiveModelId();
+
+        try {
+          if (!window.ifcSpatialStructure && modelID == null) {
+            tree.innerHTML =
+              '<div class="panel-placeholder">Load a model to view the IFC structure</div>';
+            return;
+          }
+          const ifcProject =
+            window.ifcSpatialStructure ||
+            (await ifcLoader.ifcManager.getSpatialStructure(modelID, true));
+
+          window.ifcSpatialStructure = ifcProject;
+
+          if (!ifcProject) {
+            tree.innerHTML =
+              '<div class="panel-placeholder">No IFC structure found</div>';
+            return;
+          }
+          tree.innerHTML = renderSchemaNode(ifcProject);
+        } catch (error) {
+          console.warn("refreshSchemaTree error:", error);
+          tree.innerHTML =
+            '<div class="panel-placeholder">Unable to read IFC structure</div>';
+        }
+      };
+
+      window.toggleSchemaGroup = function (header) {
+        const toggle = header.querySelector(".tree-toggle");
+        const children = header.nextElementSibling;
+        if (!children) return;
+        const isExpanded = toggle.classList.contains("expanded");
+        toggle.classList.toggle("expanded", !isExpanded);
+        children.classList.toggle("collapsed", isExpanded);
+      };
+
+      // ── Refresh floor list ────────────────────────────────────────────
+      // ── A-Frame ready ─────────────────────────────────────────────────
+      document.querySelector("a-scene").addEventListener("loaded", function () {
+        window.scene = document.querySelector("#a_world").object3D;
+        setViewerMode("3d");
+        initLeftPanelResize();
+
+        // Property panel wiring — cursor_click.js adds/removes 'panel-open' on #psetInfo
+        // We mirror that to open/close the right panel
+        window.htmlPsetInfo = document.querySelector("#psetInfo");
+        const htmlPsetInfo = window.htmlPsetInfo;
+        // Patch panel-open so it also opens #rightPanel
+        const origAdd = htmlPsetInfo.classList.add.bind(htmlPsetInfo.classList);
+        const origRemove = htmlPsetInfo.classList.remove.bind(
+          htmlPsetInfo.classList,
+        );
+        htmlPsetInfo.classList.add = function (...args) {
+          origAdd(...args);
+          if (args.includes("panel-open")) openRightPanel();
+        };
+        htmlPsetInfo.classList.remove = function (...args) {
+          origRemove(...args);
+          if (args.includes("panel-open")) closeRightPanel();
+        };
+
+        window.infoHide = document.querySelector("#infoCheckbox");
+        const infoHide = window.infoHide;
+        infoHide.addEventListener("change", (event) => {
+          if (!event.target.checked) {
+            htmlPsetInfo.classList.remove("panel-open");
+            try {
+              const modelID = getActiveModelId();
+              if (modelID != null) {
+                ifcLoader.ifcManager.removeSubset(modelID, mat);
+              }
+            } catch (_) {}
+          }
+        });
+
+        // Space Info button
+        const spaceInfobtn = document.querySelector("#spaceInfobtn");
+        const spaceInfobox = document.querySelector("#spaceInfobox");
+        spaceInfobtn.addEventListener("click", () => {
+          const visible = spaceInfobox.style.display !== "none";
+          spaceInfobox.style.display = visible ? "none" : "block";
+          if (!visible)
+            document.getElementById("rightPanel").classList.add("open");
+        });
+
+        // XR enter/exit
+        const exitXRbtn = document.querySelector("#exitXR");
+        const sceneEl = document.querySelector("a-scene");
+        sceneEl.addEventListener("enter-vr", () => {
+          exitXRbtn.style.display = "inline-block";
+        });
+        sceneEl.addEventListener("exit-vr", () => {
+          exitXRbtn.style.display = "none";
+        });
+        exitXRbtn.addEventListener("click", () => {
+          sceneEl.exitVRBound();
+        });
+
+        // Adjust Position button
+        const positionBtn = document.querySelector("#positioning");
+        const btnPanel = document.querySelector("#totalPanel");
+        var posVisible = false;
+        positionBtn.addEventListener("click", function () {
+          posVisible = !posVisible;
+          btnPanel.setAttribute("visible", posVisible ? "true" : "false");
+        });
+      });
+
+      function initCheckBoxes() {
+        slabSeeThrough.addEventListener("change", (event) => {
+          const checked = event.target.checked;
+          setTypeTransparent("IFCSLAB", checked);
+          setTypeTransparent("IFCCOVERING", checked);
+        });
+      }
+    </script>
+  </body>
+</html>
