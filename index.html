@@ -4,9 +4,87 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- ═══ Primary SEO ═══ -->
+    <title>
+      IFCExplorer – Free Online IFC Viewer | BIM 3D Model Explorer | WebXR VR
+    </title>
+    <meta
+      name="description"
+      content="IFCExplorer is a free, browser-based IFC building model viewer. Open IFC2X3, IFC4 and IFC4X3 files instantly — no download required. Explore buildings in 3D orbit mode, first-person walk-through, or full WebXR virtual reality. Perfect for architects, engineers, BIM managers, and construction professionals."
+    />
+    <meta
+      name="keywords"
+      content="IFC viewer, BIM viewer, online IFC viewer, free IFC viewer, web IFC viewer, 3D BIM viewer, building information modeling, IFC file viewer, IFC2X3, IFC4, IFC4X3, open BIM, WebXR BIM, VR building viewer, IFC model browser, architectural 3D viewer, construction model viewer, AEC viewer, BIM web app, IFCExplorer, web-ifc, ifc.js, A-Frame IFC, IFC property viewer, floor plan viewer, building walkthrough, immersive BIM, BIM online, IFC schema viewer, IFC spatial structure, building element inspection, IFC properties, MEP viewer, structural BIM, architectural IFC, engineering BIM, construction BIM, digital twin viewer, 3D architecture viewer, building 3D model, IFC browser, open source IFC viewer, no install IFC viewer, browser BIM, IFC walk-through, IFC fly-through, IFC orbit viewer, IFC storey navigation, IFC floor navigation, revit IFC export viewer, ArchiCAD IFC viewer, building model explorer"
+    />
+    <meta name="author" content="IFCExplorer / IFC.js" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0d1117" />
+    <link rel="canonical" href="https://ifcexplorer.github.io/" />
+
+    <!-- ═══ Open Graph (Facebook / LinkedIn previews) ═══ -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="IFCExplorer" />
+    <meta
+      property="og:title"
+      content="IFCExplorer – Free Online IFC Viewer | 3D BIM Explorer | WebXR"
+    />
+    <meta
+      property="og:description"
+      content="Open and explore IFC building models instantly in your browser. 3D orbit, first-person walk-through, element inspection and WebXR VR — no install, no plugin."
+    />
+    <meta property="og:image" content="assets/images/preview-sample.png" />
+    <meta property="og:url" content="https://ifcexplorer.github.io/" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- ═══ Twitter Card ═══ -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="IFCExplorer – Free Online IFC Viewer | 3D BIM Explorer"
+    />
+    <meta
+      name="twitter:description"
+      content="Open IFC files in your browser. 3D orbit, walk-through, element inspection, WebXR VR. No install required."
+    />
+    <meta name="twitter:image" content="assets/images/preview-sample.png" />
+
+    <!-- ═══ Structured Data (JSON-LD) ═══ -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "IFCExplorer – Free IFC Viewer",
+        "url": "https://ifcexplorer.github.io/",
+        "description": "A free, browser-based IFC building model viewer with 3D orbit, first-person walk-through, element inspection, and WebXR virtual reality support.",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires a modern browser with WebGL support",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "IFC2X3, IFC4, IFC4X3 file support",
+          "3D orbit viewer",
+          "First-person building walk-through",
+          "WebXR / VR mode",
+          "IFC property inspection",
+          "Floor and storey navigation",
+          "MEP system visibility control",
+          "IFC schema tree browser"
+        ],
+        "keywords": "IFC viewer, BIM viewer, online IFC viewer, WebXR, building information modeling, AEC, architecture, engineering, construction",
+        "author": {
+          "@type": "Organization",
+          "name": "IFC.js"
+        }
+      }
+    </script>
+
     <link rel="stylesheet" href="assets/css/app.css" />
     <link rel="icon" href="data:," />
-    <title>BIMXR – IFC Viewer</title>
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script>
       window.getViewerViewportRect = function () {
@@ -785,7 +863,7 @@
     <div id="overlay">
       <!-- ══ TOP MENU BAR ══ -->
       <div class="ui-menubar">
-        <div class="ui-brand">&#x2B21; BIMXR</div>
+        <div class="ui-brand">&#x2B21; IFCExplorer</div>
         <div class="ui-menubar-center">
           <span id="model-filename" class="ui-filename">No model loaded</span>
           <span id="load-status" class="load-status-info"
@@ -1049,6 +1127,12 @@
 
         <!-- RIGHT PANEL (properties) -->
         <div class="ui-right-panel" id="rightPanel">
+          <div
+            class="panel-resize-handle panel-resize-handle--right"
+            id="rightPanelResizeHandle"
+            title="Drag to resize properties panel"
+            aria-hidden="true"
+          ></div>
           <div class="panel-section panel-section--grow">
             <div class="panel-section-head">
               Properties
@@ -1132,6 +1216,9 @@
           viewerViewportSyncRaf = null;
 
           const rect = window.getViewerViewportRect();
+          // Guard BEFORE writing CSS vars — prevents canvas being set to 0 width (black screen)
+          if (rect.width <= 0 || rect.height <= 0) return;
+
           const rootStyle = document.documentElement.style;
           rootStyle.setProperty("--viewer-top", `${rect.top}px`);
           rootStyle.setProperty("--viewer-left", `${rect.left}px`);
@@ -1139,7 +1226,7 @@
           rootStyle.setProperty("--viewer-height", `${rect.height}px`);
 
           const sceneEl = document.querySelector("#a_scene");
-          if (!sceneEl || rect.width <= 0 || rect.height <= 0) return;
+          if (!sceneEl) return;
 
           if (sceneEl.renderer) {
             sceneEl.renderer.setSize(rect.width, rect.height, false);
@@ -1151,6 +1238,10 @@
           if (camera) {
             camera.aspect = rect.width / rect.height;
             camera.updateProjectionMatrix?.();
+          }
+          // Force a re-render so the scene is not blank after resize
+          if (sceneEl.renderer && sceneEl.object3D && sceneEl.camera) {
+            sceneEl.renderer.render(sceneEl.object3D, sceneEl.camera);
           }
         });
       }
@@ -1858,6 +1949,7 @@
           panel.classList.remove("resizing");
           document.body.style.cursor = "";
           document.body.style.userSelect = "";
+          syncViewerViewport();
         };
 
         const onPointerMove = (event) => {
@@ -1873,6 +1965,55 @@
 
         handle.addEventListener("pointerdown", (event) => {
           if (panel.classList.contains("collapsed")) return;
+          isResizing = true;
+          panel.classList.add("resizing");
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+          handle.setPointerCapture?.(event.pointerId);
+          syncViewerViewport();
+          event.preventDefault();
+        });
+
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", stopResize);
+        window.addEventListener("pointercancel", stopResize);
+      };
+
+      window.initRightPanelResize = function () {
+        const panel = document.getElementById("rightPanel");
+        const handle = document.getElementById("rightPanelResizeHandle");
+        const workspace = document.querySelector(".ui-workspace");
+        if (!panel || !handle || !workspace || handle.dataset.bound === "true")
+          return;
+
+        handle.dataset.bound = "true";
+        let isResizing = false;
+
+        const getMaxWidth = () =>
+          Math.min(720, Math.floor(window.innerWidth * 0.55));
+        const stopResize = () => {
+          if (!isResizing) return;
+          isResizing = false;
+          panel.classList.remove("resizing");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          syncViewerViewport();
+        };
+
+        const onPointerMove = (event) => {
+          if (!isResizing) return;
+          const wsRect = workspace.getBoundingClientRect();
+          // Right panel grows leftward: measure from pointer to right edge
+          const nextWidth = Math.max(
+            220,
+            Math.min(getMaxWidth(), wsRect.right - event.clientX),
+          );
+          panel.style.width = `${nextWidth}px`;
+          syncViewerViewport();
+        };
+
+        handle.addEventListener("pointerdown", (event) => {
+          if (!panel.classList.contains("open")) return;
           isResizing = true;
           panel.classList.add("resizing");
           document.body.style.cursor = "col-resize";
@@ -2055,6 +2196,7 @@
         initViewerViewportSync();
         setViewerMode("3d");
         initLeftPanelResize();
+        initRightPanelResize();
 
         // Property panel wiring — cursor_click.js adds/removes 'panel-open' on #psetInfo
         // We mirror that to open/close the right panel
@@ -2143,141 +2285,49 @@
     <!-- ── Visitor Counter Floating Button ── -->
     <button
       id="visitor-counter-btn"
+      class="vc-fab"
       title="Visitor Statistics"
       onclick="
-        document.getElementById('visitor-counter-modal').style.display = 'flex'
+        document.getElementById('vc-popover').classList.toggle('vc-open')
       "
-      style="
-        position: fixed;
-        top: 14px;
-        right: 14px;
-        z-index: 9999;
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
-        background: rgba(13, 17, 23, 0.88);
-        border: 1.5px solid rgba(88, 166, 255, 0.35);
-        color: #e6edf3;
-        font-size: 1.25rem;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-        transition:
-          background 0.18s ease,
-          border-color 0.18s ease,
-          transform 0.15s ease;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-      "
-      onmouseover="
-        this.style.background = 'rgba(88,166,255,0.18)';
-        this.style.borderColor = 'rgba(88,166,255,0.7)';
-        this.style.transform = 'scale(1.08)';
-      "
-      onmouseout="
-        this.style.background = 'rgba(13,17,23,0.88)';
-        this.style.borderColor = 'rgba(88,166,255,0.35)';
-        this.style.transform = 'scale(1)';
-      "
+      aria-label="Show visitor statistics"
     >
-      &#127758;
+      <span class="vc-fab-icon">&#127758;</span>
+      <span class="vc-fab-label">Visitors</span>
     </button>
 
-    <!-- ── Visitor Counter Modal ── -->
+    <!-- ── Visitor Counter Popover ── -->
     <div
-      id="visitor-counter-modal"
-      onclick="if (event.target === this) this.style.display = 'none';"
-      style="
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 10000;
-        background: rgba(0, 0, 0, 0.62);
-        align-items: flex-start;
-        justify-content: flex-end;
-        padding: 68px 14px 0 0;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-      "
+      id="vc-popover"
+      class="vc-popover"
+      role="dialog"
+      aria-label="Visitor Statistics"
     >
-      <div
-        style="
-          background: rgba(13, 17, 23, 0.97);
-          border: 1px solid rgba(88, 166, 255, 0.22);
-          border-radius: 14px;
-          padding: 20px 22px 16px;
-          box-shadow: 0 16px 56px rgba(0, 0, 0, 0.6);
-          min-width: 280px;
-          max-width: 420px;
-          position: relative;
-        "
-      >
-        <div
-          style="
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 14px;
+      <div class="vc-popover-top">
+        <span>&#127758; Visitor Statistics</span>
+        <button
+          class="vc-pop-close"
+          onclick="
+            document.getElementById('vc-popover').classList.remove('vc-open')
           "
+          aria-label="Close"
         >
-          <span
-            style="
-              font-size: 0.88rem;
-              font-weight: 600;
-              color: #e6edf3;
-              letter-spacing: 0.02em;
-            "
-            >&#127758; Visitor Statistics</span
-          >
-          <button
-            onclick="
-              document.getElementById('visitor-counter-modal').style.display =
-                'none'
-            "
-            style="
-              background: none;
-              border: none;
-              color: #8b949e;
-              font-size: 1.1rem;
-              cursor: pointer;
-              line-height: 1;
-              padding: 2px 4px;
-              border-radius: 4px;
-              transition: color 0.15s ease;
-            "
-            onmouseover="this.style.color = '#e6edf3'"
-            onmouseout="this.style.color = '#8b949e'"
-          >
-            &#10005;
-          </button>
-        </div>
-        <div style="display: flex; justify-content: center">
-          <a
-            href="http://s01.flagcounter.com/more/2uk"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://s01.flagcounter.com/count2/2uk/bg_FFFFFF/txt_000000/border_CCCCCC/columns_7/maxflags_20/viewers_0/labels_1/pageviews_0/flags_0/percent_0/"
-              alt="Flag Counter"
-              border="0"
-              style="border-radius: 6px; max-width: 100%; display: block"
-            />
-          </a>
-        </div>
-        <p
-          style="
-            margin-top: 10px;
-            font-size: 0.74rem;
-            color: #484f58;
-            text-align: center;
-          "
-        >
-          Click the counter to see full statistics
-        </p>
+          &#10005;
+        </button>
       </div>
+      <a
+        href="http://s01.flagcounter.com/more/2uk"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="vc-flag-link"
+        title="Click to see full analytics"
+      >
+        <img
+          src="https://s01.flagcounter.com/count2/2uk/bg_161b22/txt_e6edf3/border_30363d/columns_4/maxflags_20/viewers_0/labels_1/pageviews_1/flags_0/percent_0/"
+          alt="Flag Counter – visitor statistics by country"
+          class="vc-flag-img"
+        />
+      </a>
     </div>
   </body>
 </html>

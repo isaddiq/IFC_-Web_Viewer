@@ -600,8 +600,8 @@ function renderFullIfcProperties(context) {
     // click 하는 object highlight 하는 material
     const mat = new MeshLambertMaterial({
       transparent: true,
-      opacity: 0.4,
-      color: 0x000000,
+      opacity: 0.55,
+      color: 0x3fb950,
       // depthTest: false,
     });
 
