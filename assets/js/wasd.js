@@ -34,7 +34,8 @@ var KEYCODE_TO_CODE = {
 };
 var KEYS = [
     'KeyW', 'KeyA', 'KeyS', 'KeyD',
-    'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown'
+    'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown',
+    'KeyE', 'KeyQ'
   ];
 var CLAMP_VELOCITY = 0.00001;
 var MAX_DELTA = 0.2;
@@ -79,6 +80,7 @@ AFRAME.registerComponent( 'new-wasd-controls', {
         this.keys = {};
         this.easing = 1.1;
         this.velocity = new THREE.Vector3();
+        this.yVelocity = 0;
     
         // Bind methods and add event listeners.
         this.onBlur = this.onBlur.bind(this);
@@ -99,14 +101,14 @@ AFRAME.registerComponent( 'new-wasd-controls', {
         } 
 
         var velocity = this.velocity;
-        if (!velocity[data.adAxis] && !velocity[data.wsAxis] && isEmptyObject(this.keys)) {
+        if (!velocity[data.adAxis] && !velocity[data.wsAxis] && !this.yVelocity && isEmptyObject(this.keys)) {
           return;
         }
     
         // Update velocity.
         delta = delta / 1000;
         this.updateVelocity(delta);
-        if (!velocity[data.adAxis] && !velocity[data.wsAxis]) { return; }
+        if (!velocity[data.adAxis] && !velocity[data.wsAxis] && !this.yVelocity) { return; }
     
         // 아래 results = []; 부터 return;까지 추가한 코드 
 
@@ -150,6 +152,10 @@ AFRAME.registerComponent( 'new-wasd-controls', {
         }
         // Get movement vector and translate position.
         el.object3D.position.add(this.getMovementVector(delta));
+        // Apply vertical (E/Q) movement directly on Y
+        if (this.yVelocity) {
+          el.object3D.position.y += this.yVelocity * delta;
+        }
         if (window.updateWalkerFloorStatus) {
           window.updateWalkerFloorStatus();
         }
@@ -242,6 +248,12 @@ AFRAME.registerComponent( 'new-wasd-controls', {
             velocity[wsAxis] += wsSign * acceleration * delta;
           }
         }
+        // E = move up, Q = move down
+        var scaledEasingY = Math.pow(1 / this.easing, delta * 60);
+        this.yVelocity *= scaledEasingY;
+        if (Math.abs(this.yVelocity) < CLAMP_VELOCITY) { this.yVelocity = 0; }
+        if (keys.KeyE) { this.yVelocity += acceleration * delta; }
+        if (keys.KeyQ) { this.yVelocity -= acceleration * delta; }
       },
       getMovementVector: function () {
         var directionVector = new THREE.Vector3(0, 0, 0);

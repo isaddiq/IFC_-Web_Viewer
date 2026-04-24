@@ -461,7 +461,6 @@
           const cam = document.querySelector("#camera");
           const rig = document.querySelector("#cameraRig");
           const wrap = document.getElementById("view-cube-wrap");
-          const avatar = document.querySelector("#walkerAvatar");
           if (this.data.enabled) {
             this._savedRigPos = rig.object3D.position.clone();
             this._savedCameraPos = cam.object3D.position.clone();
@@ -485,7 +484,6 @@
             } catch (_) {}
             cam.setAttribute("position", "0 0 0");
             cam.setAttribute("rotation", "0 0 0");
-            if (avatar) avatar.setAttribute("visible", "false");
             if (wrap) wrap.style.display = "block";
             this._applyTransform();
           } else {
@@ -509,7 +507,6 @@
             rig.object3D.rotation.set(0, 0, 0);
             if (this._savedRigPos)
               rig.object3D.position.copy(this._savedRigPos);
-            if (avatar) avatar.setAttribute("visible", "true");
             if (wrap) wrap.style.display = "none";
             if (window.updateWalkerFloorStatus) {
               window.updateWalkerFloorStatus();
@@ -636,41 +633,6 @@
           look-controls="pointerLockEnabled: false"
           walk-look-controls="enabled: false; sensitivity: 0.16"
         >
-          <a-entity id="walkerAvatar" position="0 -1.25 -0.95" visible="false">
-            <a-cylinder
-              radius="0.16"
-              height="0.55"
-              position="0 0.28 0"
-              material="color: #2f6fed; roughness: 0.65"
-            ></a-cylinder>
-            <a-sphere
-              radius="0.14"
-              position="0 0.68 0"
-              material="color: #f0c7a8; roughness: 0.7"
-            ></a-sphere>
-            <a-cylinder
-              radius="0.05"
-              height="0.38"
-              position="-0.18 0.16 0"
-              rotation="0 0 10"
-              material="color: #2f6fed; roughness: 0.65"
-            ></a-cylinder>
-            <a-cylinder
-              radius="0.05"
-              height="0.38"
-              position="0.18 0.16 0"
-              rotation="0 0 -10"
-              material="color: #2f6fed; roughness: 0.65"
-            ></a-cylinder>
-            <a-cone
-              radius-bottom="0.11"
-              radius-top="0"
-              height="0.28"
-              position="0 0.02 -0.18"
-              rotation="90 0 0"
-              material="color: #25a45f; roughness: 0.5"
-            ></a-cone>
-          </a-entity>
           <a-entity id="totalPanel" position="-3 0 0" visible="false">
             <a-entity
               id="wasdPanel"
@@ -1204,11 +1166,17 @@
       const beambtnSeeThrough = document.querySelector("#beamCheckbox");
       var space_subset = null;
       var type_subsets = new Map();
+      // Maps for schema-tree eye-icon visibility
+      window._schemaTypeIdMap = new Map(); // typeName → [expressID, ...]
+      window._schemaElemTypeMap = new Map(); // expressID → typeName
+      window._schemaHiddenIds = new Set(); // currently hidden expressIDs
+      window._schemaHiddenTypes = new Set(); // currently hidden type-group names
 
       window.ifcLoader = ifcLoader;
+      window.type_subsets = type_subsets; // expose for toggleSchemaEye
       ifcLoader.ifcManager.setWasmPath("");
 
-      let viewerViewportSyncRaf = null;
+      var viewerViewportSyncRaf = null;
 
       function syncViewerViewport() {
         if (viewerViewportSyncRaf != null) return;
@@ -1602,6 +1570,12 @@
           if (node.children) for (let ch of node.children) await walkTree(ch);
         }
         await walkTree(ifcProject);
+        // Store globally for eye-icon visibility toggles
+        window._schemaTypeIdMap = typeMap;
+        window._schemaElemTypeMap.clear();
+        for (const [typeName, ids] of typeMap) {
+          for (const id of ids) window._schemaElemTypeMap.set(id, typeName);
+        }
         for (let [key, value] of typeMap) {
           try {
             let subset = ifcLoader.ifcManager.createSubset({
@@ -1793,6 +1767,9 @@
           document.querySelector("a-scene").components["viewer-orbit"];
         if (orbitComp) orbitComp.recenter();
 
+        // Always return to 3D orbit mode after loading a model
+        if (window.setViewerMode) window.setViewerMode("3d");
+
         // Refresh left panel
         if (window.refreshSchemaTree) await refreshSchemaTree();
 
@@ -1937,46 +1914,40 @@
         const workspace = document.querySelector(".ui-workspace");
         if (!panel || !handle || !workspace || handle.dataset.bound === "true")
           return;
-
         handle.dataset.bound = "true";
-        let isResizing = false;
 
         const getMaxWidth = () =>
           Math.min(720, Math.floor(window.innerWidth * 0.55));
-        const stopResize = () => {
-          if (!isResizing) return;
-          isResizing = false;
-          panel.classList.remove("resizing");
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-          syncViewerViewport();
-        };
 
-        const onPointerMove = (event) => {
-          if (!isResizing) return;
+        function onMove(e) {
           const rect = workspace.getBoundingClientRect();
           const nextWidth = Math.max(
             220,
-            Math.min(getMaxWidth(), event.clientX - rect.left),
+            Math.min(getMaxWidth(), e.clientX - rect.left),
           );
           panel.style.width = `${nextWidth}px`;
           syncViewerViewport();
-        };
+        }
 
-        handle.addEventListener("pointerdown", (event) => {
+        function onUp() {
+          panel.classList.remove("resizing");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          syncViewerViewport();
+        }
+
+        handle.addEventListener("mousedown", (e) => {
           if (panel.classList.contains("collapsed")) return;
-          isResizing = true;
+          e.preventDefault();
+          e.stopPropagation();
           panel.classList.add("resizing");
           document.body.style.cursor = "col-resize";
           document.body.style.userSelect = "none";
-          handle.setPointerCapture?.(event.pointerId);
-          syncViewerViewport();
-          event.preventDefault();
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
         });
-
-        window.addEventListener("pointermove", onPointerMove);
-        window.addEventListener("pointerup", stopResize);
-        window.addEventListener("pointercancel", stopResize);
       };
 
       window.initRightPanelResize = function () {
@@ -1985,47 +1956,40 @@
         const workspace = document.querySelector(".ui-workspace");
         if (!panel || !handle || !workspace || handle.dataset.bound === "true")
           return;
-
         handle.dataset.bound = "true";
-        let isResizing = false;
 
         const getMaxWidth = () =>
           Math.min(720, Math.floor(window.innerWidth * 0.55));
-        const stopResize = () => {
-          if (!isResizing) return;
-          isResizing = false;
-          panel.classList.remove("resizing");
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-          syncViewerViewport();
-        };
 
-        const onPointerMove = (event) => {
-          if (!isResizing) return;
+        function onMove(e) {
           const wsRect = workspace.getBoundingClientRect();
-          // Right panel grows leftward: measure from pointer to right edge
           const nextWidth = Math.max(
             220,
-            Math.min(getMaxWidth(), wsRect.right - event.clientX),
+            Math.min(getMaxWidth(), wsRect.right - e.clientX),
           );
           panel.style.width = `${nextWidth}px`;
           syncViewerViewport();
-        };
+        }
 
-        handle.addEventListener("pointerdown", (event) => {
+        function onUp() {
+          panel.classList.remove("resizing");
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          syncViewerViewport();
+        }
+
+        handle.addEventListener("mousedown", (e) => {
           if (!panel.classList.contains("open")) return;
-          isResizing = true;
+          e.preventDefault();
+          e.stopPropagation();
           panel.classList.add("resizing");
           document.body.style.cursor = "col-resize";
           document.body.style.userSelect = "none";
-          handle.setPointerCapture?.(event.pointerId);
-          syncViewerViewport();
-          event.preventDefault();
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
         });
-
-        window.addEventListener("pointermove", onPointerMove);
-        window.addEventListener("pointerup", stopResize);
-        window.addEventListener("pointercancel", stopResize);
       };
 
       window.toggleLeftPanel = function () {
@@ -2041,8 +2005,68 @@
         syncViewerViewport();
       };
       window.closeRightPanel = function () {
-        document.getElementById("rightPanel").classList.remove("open");
-        syncViewerViewport();
+        const panel = document.getElementById("rightPanel");
+        panel.classList.remove("open");
+        // Wait for the CSS width transition to complete before resizing the viewport
+        // to avoid the black gap that appears during the animation.
+        function onTransitionEnd(e) {
+          if (e.propertyName !== "width") return;
+          panel.removeEventListener("transitionend", onTransitionEnd);
+          syncViewerViewport();
+        }
+        panel.addEventListener("transitionend", onTransitionEnd);
+      };
+
+      // ── Schema-tree eye-icon toggle ──────────────────────────────────
+      window.toggleSchemaEye = function (event, btn, expressID, typeName) {
+        event.stopPropagation();
+        const modelID = window.getActiveModelId?.();
+        if (modelID == null) return;
+
+        if (typeName) {
+          // Type-group: toggle whole subset
+          const subset = window.type_subsets.get(typeName);
+          const nowHidden = !window._schemaHiddenTypes.has(typeName);
+          if (nowHidden) {
+            window._schemaHiddenTypes.add(typeName);
+            if (subset) subset.visible = false;
+          } else {
+            window._schemaHiddenTypes.delete(typeName);
+            if (subset) subset.visible = true;
+          }
+          btn.classList.toggle("hidden-eye", nowHidden);
+          btn.title = nowHidden ? "Show" : "Hide";
+        } else if (expressID) {
+          const id = Number(expressID);
+          const nowHidden = !window._schemaHiddenIds.has(id);
+          if (nowHidden) {
+            window._schemaHiddenIds.add(id);
+          } else {
+            window._schemaHiddenIds.delete(id);
+          }
+          btn.classList.toggle("hidden-eye", nowHidden);
+          btn.title = nowHidden ? "Show" : "Hide";
+          // Rebuild the type subset, filtering out all hidden IDs of that type
+          const tName = window._schemaElemTypeMap.get(id);
+          if (tName) {
+            const allIds = window._schemaTypeIdMap.get(tName) || [];
+            const visibleIds = allIds.filter(
+              (i) => !window._schemaHiddenIds.has(i),
+            );
+            try {
+              const rebuilt = ifcLoader.ifcManager.createSubset({
+                modelID,
+                ids: visibleIds.length ? visibleIds : [-1],
+                scene: window.scene,
+                removePrevious: true,
+                customID: tName,
+              });
+              if (rebuilt) window.type_subsets.set(tName, rebuilt);
+            } catch (e) {
+              console.warn("toggleSchemaEye subset rebuild failed:", e);
+            }
+          }
+        }
       };
       window.closeSpacePanel = function () {
         document.getElementById("spaceInfobox").style.display = "none";
@@ -2126,6 +2150,22 @@
         return "&#128449;";
       }
 
+      function _treeNodeLevelClass(type) {
+        if (!type) return "tree-node--element";
+        if (type === "IFCPROJECT") return "tree-node--project";
+        if (type === "IFCSITE") return "tree-node--site";
+        if (type === "IFCBUILDING") return "tree-node--building";
+        if (type === "IFCBUILDINGSTOREY") return "tree-node--storey";
+        if (
+          type === "IFCSPACE" ||
+          type === "IFCZONE" ||
+          type === "IFCSPATIALZONE" ||
+          type === "IFCEXTERNALSPATIALELEMENT"
+        )
+          return "tree-node--space";
+        return "tree-node--element";
+      }
+
       function renderSchemaNode(node) {
         if (!node) return "";
 
@@ -2136,6 +2176,7 @@
         const label = escapeSchemaText(getSchemaNodeLabel(node));
         const meta = escapeSchemaText(getSchemaNodeMeta(node));
         const icon = getSchemaNodeIcon(node.type, hasChildren);
+        const levelClass = _treeNodeLevelClass(node.type);
 
         let childHtml = "";
         if (hasChildren) {
@@ -2172,6 +2213,7 @@
                       <span class="tree-icon tree-icon--type">${grpIcon}</span>
                       <span class="tree-label tree-type-label">${escapeSchemaText(typeName)}</span>
                       <span class="tree-count tree-type-count">${items.length}</span>
+                      <button class="tree-eye tree-eye--type" onclick="toggleSchemaEye(event,this,'','${escapeSchemaText(typeName)}')" title="Hide">&#128065;</button>
                     </div>
                     <div class="tree-children">${itemsHtml}</div>
                   </div>`;
@@ -2185,13 +2227,33 @@
           }
         }
 
+        const eid = node.expressID ?? "";
+        const isLeaf = !hasChildren;
+        // Leaf elements: eye replaces the bullet icon (left position).
+        // Branch/spatial nodes: keep their distinctive icon, eye goes on the right.
+        if (isLeaf && eid) {
+          return `
+          <div class="tree-node ${levelClass}" data-express-id="${eid}">
+            <div class="tree-header" onclick="handleSchemaNodeClick(event, this)">
+              <span class="tree-toggle leaf"></span>
+              <button class="tree-eye tree-eye--left" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide">&#128065;</button>
+              <span class="tree-label">${label}</span>
+              <span class="tree-count">${meta}</span>
+            </div>
+            ${childHtml}
+          </div>`;
+        }
+        const eyeBtn = eid
+          ? `<button class="tree-eye" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide">&#128065;</button>`
+          : "";
         return `
-          <div class="tree-node" data-express-id="${node.expressID ?? ""}">
+          <div class="tree-node ${levelClass}" data-express-id="${eid}">
             <div class="tree-header" onclick="handleSchemaNodeClick(event, this)">
               <span class="tree-toggle ${hasChildren ? "expanded" : "leaf"}" title="${hasChildren ? "Expand or collapse" : ""}">&#9654;</span>
               <span class="tree-icon">${icon}</span>
               <span class="tree-label">${label}</span>
               <span class="tree-count">${meta}</span>
+              ${eyeBtn}
             </div>
             ${childHtml}
           </div>`;

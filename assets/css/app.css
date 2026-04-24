@@ -38,6 +38,11 @@
   padding: 0;
 }
 
+/* Base scale — bumps all rem-based font sizes proportionally */
+html {
+  font-size: 15px;
+}
+
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
@@ -194,7 +199,7 @@ a-scene {
 
 /* ── Menu bar (34px, light) ── */
 .ui-menubar {
-  height: 34px;
+  height: 38px;
   display: flex;
   align-items: center;
   gap: 0.8rem;
@@ -207,7 +212,7 @@ a-scene {
   flex-shrink: 0;
 }
 .ui-brand {
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 800;
   letter-spacing: 0.05em;
   color: #0969da;
@@ -223,7 +228,7 @@ a-scene {
   overflow: hidden;
 }
 .ui-filename {
-  font-size: 0.74rem;
+  font-size: 0.82rem;
   color: #1f2328;
   white-space: nowrap;
   overflow: hidden;
@@ -340,7 +345,7 @@ a-scene {
   align-items: center;
   gap: 0;
   padding: 0 0.5rem;
-  height: 28px;
+  height: 30px;
   flex-shrink: 0;
   border-bottom: 1px solid #d0d7de;
   background: #f6f8fa;
@@ -355,7 +360,7 @@ a-scene {
   border-bottom: none;
   border-radius: 4px 4px 0 0;
   color: #656d76;
-  font-size: 0.72rem;
+  font-size: 0.79rem;
   cursor: pointer;
   transition: var(--t);
   font-family: inherit;
@@ -381,7 +386,7 @@ a-scene {
   align-items: center;
   gap: 0;
   padding: 0 0.5rem;
-  height: 36px;
+  height: 40px;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -419,17 +424,17 @@ a-scene {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 3px 7px;
+  padding: 3px 8px;
   background: #f6f8fa;
   border: 1px solid #d0d7de;
   border-radius: 4px;
   color: #1f2328;
-  font-size: 0.7rem;
+  font-size: 0.78rem;
   cursor: pointer;
   transition: var(--t);
   font-family: inherit;
   white-space: nowrap;
-  height: 26px;
+  height: 28px;
 }
 .rb-btn:hover {
   background: rgba(9, 105, 218, 0.08);
@@ -444,7 +449,7 @@ a-scene {
 }
 .btn-icon,
 .rb-icon {
-  font-size: 0.8em;
+  font-size: 1em;
   line-height: 1;
   flex-shrink: 0;
 }
@@ -594,11 +599,12 @@ a-scene {
   position: absolute;
   top: 0;
   right: 0;
-  width: 10px;
+  width: 12px;
   height: 100%;
   cursor: col-resize;
-  z-index: 5;
+  z-index: 20;
   touch-action: none;
+  pointer-events: auto;
 }
 .panel-resize-handle::before {
   content: "";
@@ -678,12 +684,12 @@ a-scene {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #0969da;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  padding: 0.4rem 0.7rem;
+  padding: 0.45rem 0.7rem;
   background: #f6f8fa;
   border-bottom: 1px solid #d0d7de;
   flex-shrink: 0;
@@ -693,7 +699,7 @@ a-scene {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  font-size: 0.74rem;
+  font-size: 0.8rem;
   overflow-y: auto;
   color: #1f2328;
 }
@@ -730,32 +736,116 @@ a-scene {
 /* ============================================================
    SCHEMA TREE — hierarchical with expand/collapse + eye icons
    ============================================================ */
+
+/* ── Level color palette ── */
+:root {
+  --tree-project: #6f42c1; /* purple  — IFCPROJECT */
+  --tree-site: #0969da; /* blue    — IFCSITE */
+  --tree-building: #d97706; /* amber   — IFCBUILDING */
+  --tree-storey: #0891b2; /* cyan    — IFCBUILDINGSTOREY */
+  --tree-space: #059669; /* emerald — IFCSPACE */
+  --tree-type: #7c3aed; /* violet  — type-group rows */
+  --tree-element: #374151; /* slate   — leaf elements */
+}
+
 .tree-node {
   user-select: none;
 }
+
+/* ── Generic tree-header base ── */
 .tree-header {
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 2px 4px;
+  padding: 3px 4px;
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.1s;
 }
 .tree-header:hover {
-  background: rgba(9, 105, 218, 0.08);
+  background: rgba(9, 105, 218, 0.07);
 }
 .tree-header.selected {
   background: rgba(9, 105, 218, 0.14);
+  outline: 1px solid rgba(9, 105, 218, 0.25);
+}
+
+/* ── Per-level left-border accent ── */
+.tree-node--project > .tree-header {
+  border-left: 3px solid var(--tree-project);
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+  background: rgba(111, 66, 193, 0.05);
+}
+.tree-node--site > .tree-header {
+  border-left: 3px solid var(--tree-site);
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+  background: rgba(9, 105, 218, 0.05);
+}
+.tree-node--building > .tree-header {
+  border-left: 3px solid var(--tree-building);
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+  background: rgba(217, 119, 6, 0.05);
+}
+.tree-node--storey > .tree-header {
+  border-left: 3px solid var(--tree-storey);
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+  background: rgba(8, 145, 178, 0.05);
+}
+.tree-node--space > .tree-header {
+  border-left: 3px solid var(--tree-space);
+  padding-left: 5px;
+  border-radius: 0 4px 4px 0;
+  background: rgba(5, 150, 105, 0.05);
+}
+
+.tree-node--project > .tree-header .tree-label {
+  color: var(--tree-project);
+  font-weight: 700;
+}
+.tree-node--site > .tree-header .tree-label {
+  color: var(--tree-site);
+  font-weight: 700;
+}
+.tree-node--building > .tree-header .tree-label {
+  color: var(--tree-building);
+  font-weight: 700;
+}
+.tree-node--storey > .tree-header .tree-label {
+  color: var(--tree-storey);
+  font-weight: 600;
+}
+.tree-node--space > .tree-header .tree-label {
+  color: var(--tree-space);
+  font-weight: 600;
+}
+
+.tree-node--project > .tree-header .tree-icon {
+  color: var(--tree-project);
+}
+.tree-node--site > .tree-header .tree-icon {
+  color: var(--tree-site);
+}
+.tree-node--building > .tree-header .tree-icon {
+  color: var(--tree-building);
+}
+.tree-node--storey > .tree-header .tree-icon {
+  color: var(--tree-storey);
+}
+.tree-node--space > .tree-header .tree-icon {
+  color: var(--tree-space);
 }
 
 .tree-toggle {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.55rem;
+  font-size: 0.6rem;
   color: #656d76;
   flex-shrink: 0;
   transition: transform 0.15s;
@@ -767,29 +857,34 @@ a-scene {
   visibility: hidden;
 }
 
+/* When the eye IS the left icon (replaces the bullet on leaf nodes) */
+.tree-eye--left {
+  margin-right: 3px;
+}
+
 .tree-icon {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.85rem;
   flex-shrink: 0;
   color: #0969da;
-  margin-right: 2px;
+  margin-right: 3px;
 }
 
 .tree-label {
   flex: 1;
-  font-size: 0.72rem;
-  color: #1f2328;
+  font-size: 0.79rem;
+  color: var(--tree-element);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tree-count {
-  font-size: 0.6rem;
+  font-size: 0.65rem;
   color: #656d76;
   margin-left: 4px;
   flex-shrink: 0;
@@ -798,27 +893,42 @@ a-scene {
 .tree-eye {
   width: 22px;
   height: 22px;
-  display: flex;
+  display: none; /* hidden until row is hovered or element is hidden */
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
-  color: #656d76;
+  font-size: 0.8rem;
+  color: #adb5bd;
+  background: none;
+  border: none;
+  padding: 0;
   cursor: pointer;
   border-radius: 3px;
   flex-shrink: 0;
   transition: var(--t);
+  line-height: 1;
+}
+/* Show eye icon on row hover */
+.tree-header:hover .tree-eye {
+  display: flex;
+}
+/* Always show when element is hidden (so user can un-hide it) */
+.tree-eye.hidden-eye {
+  display: flex;
+  color: #cf222e;
+  opacity: 0.75;
 }
 .tree-eye:hover {
   background: rgba(9, 105, 218, 0.1);
   color: #0969da;
 }
-.tree-eye.hidden-eye {
-  color: #afb8c1;
-  opacity: 0.5;
+.tree-eye.hidden-eye:hover {
+  background: rgba(207, 34, 46, 0.1);
+  color: #cf222e;
+  opacity: 1;
 }
 
 .tree-children {
-  padding-left: 14px;
+  padding-left: 16px;
   overflow: hidden;
 }
 .tree-children.collapsed {
@@ -831,34 +941,38 @@ a-scene {
 }
 
 /* ── Type-group rows (IFC class buckets inside storeys) ── */
+.tree-type-group > .tree-header,
 .tree-type-header {
-  background: rgba(9, 105, 218, 0.04);
-  border-radius: 4px;
-  margin-top: 2px;
+  background: rgba(124, 58, 237, 0.06);
+  border-left: 2px solid rgba(124, 58, 237, 0.35);
+  padding-left: 6px;
+  border-radius: 0 4px 4px 0;
+  margin-top: 3px;
 }
+.tree-type-group > .tree-header:hover,
 .tree-type-header:hover {
-  background: rgba(9, 105, 218, 0.11);
+  background: rgba(124, 58, 237, 0.12);
 }
 .tree-icon--type {
-  color: #0969da;
-  opacity: 0.75;
+  color: var(--tree-type);
+  font-size: 0.85rem;
 }
 .tree-type-label {
-  font-size: 0.69rem;
-  font-weight: 600;
-  color: #0969da;
-  letter-spacing: 0.025em;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--tree-type);
+  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 .tree-type-count {
-  font-size: 0.6rem;
-  color: #0969da;
-  opacity: 0.7;
+  font-size: 0.65rem;
+  color: var(--tree-type);
+  opacity: 0.8;
   margin-left: 4px;
-  background: rgba(9, 105, 218, 0.1);
+  background: rgba(124, 58, 237, 0.1);
   border-radius: 8px;
-  padding: 0 5px;
-  line-height: 1.6;
+  padding: 0 6px;
+  line-height: 1.7;
 }
 
 /* ── 2D Plan View indicator ── */
