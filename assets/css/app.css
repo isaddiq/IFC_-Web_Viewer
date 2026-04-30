@@ -41,16 +41,23 @@
 /* Base scale — bumps all rem-based font sizes proportionally */
 html {
   font-size: 15px;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
 }
 
 /* ============================================================
@@ -189,8 +196,11 @@ a-scene {
 }
 
 #overlay {
-  position: fixed;
-  inset: 0;
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   display: flex;
   flex-direction: column;
   pointer-events: none;
@@ -1483,7 +1493,7 @@ button#saveBtn::before {
 /* ── Floating action button ── */
 .vc-fab {
   position: fixed;
-  bottom: 24px;
+  top: 12px;
   right: 20px;
   z-index: 9999;
   display: flex;
@@ -1549,7 +1559,7 @@ button#saveBtn::before {
 .vc-popover {
   display: none;
   position: fixed;
-  bottom: 72px;
+  top: 60px;
   right: 20px;
   z-index: 10000;
   background: #0d1117;
@@ -1623,4 +1633,703 @@ button#saveBtn::before {
   display: block;
   max-width: 100%;
   border-radius: 6px;
+}
+
+/* ============================================================
+   PROFESSIONAL BIM SOFTWARE SKIN
+   ============================================================ */
+:root {
+  --bim-app: #edf1f5;
+  --bim-chrome: #f8fafc;
+  --bim-chrome-2: #eef3f7;
+  --bim-panel: #fbfcfd;
+  --bim-panel-soft: #f4f7fa;
+  --bim-border: #cbd5df;
+  --bim-border-soft: #dde5ed;
+  --bim-ink: #1d2733;
+  --bim-muted: #697586;
+  --bim-faint: #8c99a8;
+  --bim-blue: #1f6feb;
+  --bim-blue-dark: #1758bd;
+  --bim-cyan: #0f7d95;
+  --bim-green: #257a48;
+  --bim-orange: #9a5b00;
+  --bim-red: #b42318;
+  --bim-focus: rgba(31, 111, 235, 0.18);
+  --bim-shadow-sm: 0 1px 2px rgba(29, 39, 51, 0.08);
+  --bim-shadow: 0 12px 32px rgba(29, 39, 51, 0.16);
+  --bim-radius: 5px;
+  --bim-radius-sm: 3px;
+  --bim-edge-bleed: 16px;
+  --text: var(--bim-ink);
+  --text2: var(--bim-muted);
+  --text3: var(--bim-faint);
+  --accent: var(--bim-blue);
+  --accent2: #4f8ff3;
+  --accent-bg: rgba(31, 111, 235, 0.08);
+  --panel: var(--bim-panel);
+  --border: var(--bim-border);
+  --border-dim: var(--bim-border-soft);
+  --shadow: var(--bim-shadow);
+  --r: var(--bim-radius-sm);
+  --r2: var(--bim-radius);
+  --r3: 8px;
+}
+
+html,
+body {
+  width: 100vw !important;
+  height: 100vh !important;
+  min-width: 100vw !important;
+  min-height: 100vh !important;
+  background: transparent !important;
+}
+
+@supports (height: 100dvh) {
+  html,
+  body {
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+  }
+}
+
+body {
+  color: var(--bim-ink);
+  font-family:
+    "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    sans-serif;
+}
+
+#overlay {
+  top: calc(-1 * var(--bim-edge-bleed)) !important;
+  right: calc(-1 * var(--bim-edge-bleed)) !important;
+  bottom: calc(-1 * var(--bim-edge-bleed)) !important;
+  left: calc(-1 * var(--bim-edge-bleed)) !important;
+  box-sizing: content-box !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  padding: var(--bim-edge-bleed) !important;
+  min-width: 100vw !important;
+  min-height: 100vh !important;
+  overflow: hidden !important;
+  background: transparent;
+}
+
+@supports (height: 100dvh) {
+  #overlay {
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+  }
+}
+
+.ui-menubar,
+.ui-ribbon,
+.ui-workspace {
+  width: 100%;
+}
+
+.ui-menubar {
+  height: 34px;
+  padding: 0 148px 0 12px;
+  gap: 10px;
+  background: linear-gradient(#ffffff, #f3f6f9);
+  border-bottom: 1px solid #b8c4d0;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ui-brand {
+  color: #174ea6;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.ui-brand::after {
+  content: "  BIM Viewer";
+  color: var(--bim-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.ui-menubar-center {
+  gap: 8px;
+}
+
+.ui-filename {
+  max-width: 380px;
+  color: var(--bim-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.load-status-info,
+.load-status-ok,
+.load-status-error {
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  font-size: 0.67rem;
+  font-weight: 650;
+}
+
+.load-status-info {
+  color: var(--bim-muted);
+  background: #eef3f7;
+  border-color: #d7e0e8;
+}
+
+.load-status-ok {
+  color: var(--bim-green);
+  background: #eaf6ef;
+  border-color: #bddbc8;
+}
+
+.load-status-error {
+  color: var(--bim-red);
+  background: #fff0ef;
+  border-color: #f0c0bc;
+}
+
+.ui-menu-btn {
+  height: 24px;
+  background: #ffffff;
+  border-color: var(--bim-border);
+  border-radius: var(--bim-radius-sm);
+  color: var(--bim-ink);
+  box-shadow: var(--bim-shadow-sm);
+}
+
+.ui-menu-btn:hover {
+  color: var(--bim-blue);
+  background: #eef5ff;
+  border-color: #8db5f2;
+}
+
+.ui-ribbon {
+  background: var(--bim-chrome);
+  border-bottom: 1px solid #aebdca;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.88) inset,
+    0 2px 4px rgba(29, 39, 51, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ribbon-tabs {
+  height: 31px;
+  padding-left: 8px;
+  background: #e8edf2;
+  border-bottom: 1px solid #b8c4d0;
+}
+
+.ribbon-tab {
+  height: 30px;
+  padding: 5px 16px;
+  border-radius: 4px 4px 0 0;
+  color: #465363;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.ribbon-tab:hover {
+  background: #f5f8fb;
+  color: var(--bim-ink);
+}
+
+.ribbon-tab.active {
+  background: var(--bim-chrome);
+  color: var(--bim-blue-dark);
+  border-color: #b8c4d0;
+  border-bottom-color: var(--bim-chrome);
+}
+
+.ribbon-panel {
+  min-height: 54px;
+  height: auto;
+  padding: 7px 10px 8px;
+  background: var(--bim-chrome);
+}
+
+.ribbon-group {
+  min-height: 38px;
+  gap: 5px;
+  padding: 0 10px;
+  border-right: 1px solid var(--bim-border-soft);
+}
+
+.ribbon-group:last-child {
+  border-right: none;
+}
+
+.ribbon-group-label {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  min-width: 42px;
+  margin: 0 2px 1px 0;
+  color: #6b7787;
+  font-size: 0.57rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.ribbon-sep {
+  display: none;
+}
+
+.rb-btn,
+.rb-btn-sm,
+.rb-go {
+  border-radius: var(--bim-radius-sm);
+  font-weight: 650;
+  letter-spacing: 0;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+}
+
+.rb-btn {
+  height: 31px;
+  padding: 4px 10px;
+  background: #ffffff;
+  border-color: #c7d1db;
+  color: var(--bim-ink);
+  font-size: 0.75rem;
+}
+
+.rb-btn:hover,
+.rb-btn-sm:hover {
+  background: #edf5ff;
+  border-color: #8db5f2;
+  color: var(--bim-blue-dark);
+}
+
+.rb-btn.active {
+  background: #dcecff;
+  border-color: #6ca2ee;
+  color: #123f88;
+}
+
+.rb-btn:focus-visible,
+.rb-btn-sm:focus-visible,
+.rb-go:focus-visible,
+.ribbon-tab:focus-visible,
+.ui-menu-btn:focus-visible,
+.vc-fab:focus-visible {
+  outline: 2px solid var(--bim-focus);
+  outline-offset: 1px;
+}
+
+.rb-btn-sm,
+.rb-go {
+  height: 26px;
+  padding: 3px 8px;
+}
+
+.rb-go {
+  background: var(--bim-blue);
+  border: 1px solid var(--bim-blue-dark);
+  color: #ffffff;
+}
+
+.rb-go:hover {
+  background: var(--bim-blue-dark);
+}
+
+.rb-color-row input[type="color"],
+.rb-select-row select {
+  border-radius: var(--bim-radius-sm);
+  border-color: #c7d1db;
+  background: #ffffff;
+  color: var(--bim-ink);
+}
+
+.rb-select-row select {
+  height: 27px;
+  max-width: 240px;
+  font-size: 0.72rem;
+}
+
+.floor-level-status {
+  color: var(--bim-muted);
+  max-width: 300px;
+  font-size: 0.7rem;
+}
+
+.rb-toggle {
+  min-height: 27px;
+  padding: 3px 8px;
+  border: 1px solid #c7d1db;
+  border-radius: var(--bim-radius-sm);
+  background: #ffffff;
+  color: var(--bim-ink);
+  font-weight: 600;
+}
+
+.ui-workspace {
+  background: transparent;
+}
+
+.ui-left-panel,
+.ui-right-panel {
+  background: var(--bim-panel);
+  color: var(--bim-ink);
+  border-color: #b9c6d3;
+  box-shadow: 1px 0 3px rgba(29, 39, 51, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ui-left-panel {
+  width: 288px;
+}
+
+.ui-right-panel.open {
+  width: 340px;
+}
+
+.panel-section {
+  border-bottom-color: var(--bim-border-soft);
+}
+
+.panel-section-head {
+  min-height: 32px;
+  padding: 7px 10px;
+  background: linear-gradient(#f7f9fb, #eef3f7);
+  border-bottom-color: #cbd5df;
+  color: #314154;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.075em;
+}
+
+.panel-section-head::before {
+  content: "";
+  width: 3px;
+  height: 16px;
+  margin-right: 7px;
+  background: var(--bim-blue);
+  border-radius: 2px;
+}
+
+.panel-section-body {
+  padding: 8px;
+  color: var(--bim-ink);
+  font-size: 0.78rem;
+}
+
+.panel-placeholder {
+  padding: 8px;
+  color: var(--bim-muted);
+  background: #f4f7fa;
+  border: 1px dashed #cbd5df;
+  border-radius: var(--bim-radius);
+  font-style: normal;
+}
+
+.panel-close-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--bim-radius-sm);
+  color: var(--bim-muted);
+}
+
+.panel-close-btn:hover {
+  color: var(--bim-red);
+  background: #fff0ef;
+}
+
+.panel-resize-handle::before {
+  background: rgba(31, 111, 235, 0.16);
+}
+
+.panel-resize-handle:hover::before,
+.ui-left-panel.resizing .panel-resize-handle::before,
+.ui-right-panel.resizing .panel-resize-handle--right::before {
+  background: rgba(31, 111, 235, 0.48);
+}
+
+.tree-header {
+  min-height: 24px;
+  border-radius: var(--bim-radius-sm);
+  color: var(--bim-ink);
+}
+
+.tree-header:hover {
+  background: #edf5ff;
+}
+
+.tree-header.selected {
+  background: #dcecff;
+  outline: 1px solid #8db5f2;
+}
+
+.tree-label {
+  color: #2d3a48;
+  font-size: 0.76rem;
+}
+
+.tree-count {
+  color: var(--bim-faint);
+  font-size: 0.62rem;
+}
+
+.tree-node--project > .tree-header,
+.tree-node--site > .tree-header,
+.tree-node--building > .tree-header,
+.tree-node--storey > .tree-header,
+.tree-node--space > .tree-header,
+.tree-type-group > .tree-header,
+.tree-type-header {
+  background: transparent;
+  border-left-width: 2px;
+  border-radius: 0 var(--bim-radius-sm) var(--bim-radius-sm) 0;
+}
+
+.tree-node--project > .tree-header:hover,
+.tree-node--site > .tree-header:hover,
+.tree-node--building > .tree-header:hover,
+.tree-node--storey > .tree-header:hover,
+.tree-node--space > .tree-header:hover,
+.tree-type-group > .tree-header:hover,
+.tree-type-header:hover {
+  background: #edf5ff;
+}
+
+.tree-type-label {
+  color: #445064;
+  font-size: 0.68rem;
+  letter-spacing: 0.045em;
+}
+
+.tree-type-count {
+  color: #445064;
+  background: #e6edf5;
+  border: 1px solid #cbd5df;
+}
+
+.tree-eye:hover {
+  background: #e2efff;
+  color: var(--bim-blue);
+}
+
+.prop-summary {
+  padding: 10px;
+  background: #ffffff;
+  border-bottom-color: var(--bim-border-soft);
+}
+
+.prop-type-badge {
+  border-radius: var(--bim-radius-sm);
+  background: #eaf3ff;
+  border-color: #b8d3f7;
+  color: #174ea6;
+}
+
+.prop-meta {
+  color: var(--bim-muted);
+}
+
+#psetTables h4 {
+  margin: 10px 0 4px;
+  padding: 5px 7px;
+  background: #eef3f7;
+  border-left: 3px solid var(--bim-cyan);
+  color: #314154;
+  font-size: 0.69rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pset-table {
+  border: 1px solid #dce3ea;
+  background: #ffffff;
+}
+
+.pset-table th {
+  background: #f3f6f9;
+  color: #526173;
+  border-bottom-color: #cbd5df;
+}
+
+.pset-table td {
+  color: var(--bim-ink);
+  border-bottom-color: #edf1f5;
+}
+
+.pset-table tr:nth-child(even) td {
+  background: #fbfcfd;
+}
+
+#view-cube-wrap {
+  top: 12px;
+  right: 12px;
+}
+
+.vc-viewport {
+  background: rgba(248, 250, 252, 0.94);
+  border-color: #b9c6d3;
+  border-radius: var(--bim-radius);
+  box-shadow: var(--bim-shadow-sm);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.vc-face {
+  color: #1e3a5f;
+  background: rgba(222, 234, 247, 0.95);
+  border-color: #9fb6ce;
+}
+
+.vc-face:hover {
+  background: #cfe2f8;
+  color: #123f88;
+  border-color: #6ca2ee;
+}
+
+.vc-btn {
+  background: #ffffff;
+  border-color: #b9c6d3;
+  color: #314154;
+}
+
+.vc-btn:hover {
+  background: #edf5ff;
+  border-color: #8db5f2;
+  color: var(--bim-blue-dark);
+}
+
+.vc-hint {
+  color: #667789;
+  background: rgba(248, 250, 252, 0.88);
+  border: 1px solid #d8e1ea;
+  border-radius: var(--bim-radius-sm);
+  padding: 2px 4px;
+}
+
+details.memo-details,
+.modal-content {
+  background: var(--bim-panel);
+  border-color: var(--bim-border);
+  color: var(--bim-ink);
+}
+
+.memo-summary {
+  background: #eef3f7;
+  color: #314154;
+  border-bottom-color: var(--bim-border-soft);
+}
+
+.memo-list,
+.modal-content > p,
+.list-content,
+.editBtn,
+.deleteBtn {
+  color: var(--bim-muted);
+}
+
+.memo-title,
+.memo-content {
+  background: #ffffff;
+  border-color: #c7d1db;
+  color: var(--bim-ink);
+}
+
+.memo-title:focus,
+.memo-content:focus {
+  border-color: var(--bim-blue);
+  box-shadow: 0 0 0 2px var(--bim-focus);
+}
+
+button#saveBtn,
+button.toPDF {
+  background: var(--bim-blue);
+  color: #ffffff;
+}
+
+button#saveBtn:hover,
+button.toPDF:hover {
+  background: var(--bim-blue-dark);
+}
+
+.modal {
+  background: rgba(29, 39, 51, 0.42);
+}
+
+.vc-fab {
+  top: 4px;
+  right: 12px;
+  height: 26px;
+  padding: 0 10px;
+  gap: 5px;
+  border-radius: var(--bim-radius-sm);
+  background: #ffffff;
+  border: 1px solid #b8c4d0;
+  color: #314154;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  box-shadow: var(--bim-shadow-sm);
+  animation: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.vc-fab:hover {
+  background: #edf5ff;
+  border-color: #8db5f2;
+  color: var(--bim-blue-dark);
+  transform: none;
+  box-shadow: var(--bim-shadow-sm);
+}
+
+.vc-fab-icon {
+  font-size: 0.9rem;
+}
+
+.vc-popover {
+  top: 36px;
+  right: 12px;
+  background: #ffffff;
+  border-color: #b8c4d0;
+  border-radius: var(--bim-radius);
+  box-shadow: var(--bim-shadow);
+}
+
+.vc-popover-top {
+  background: #eef3f7;
+  border-bottom-color: #cbd5df;
+  color: #314154;
+}
+
+.vc-pop-close {
+  color: var(--bim-muted);
+}
+
+.vc-pop-close:hover {
+  color: var(--bim-red);
+  background: #fff0ef;
+}
+
+.vc-flag-link {
+  background: #ffffff;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #b7c4d1;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8fa1b3;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }

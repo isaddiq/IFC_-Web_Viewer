@@ -19,7 +19,7 @@
     />
     <meta name="author" content="IFCExplorer / IFC.js" />
     <meta name="robots" content="index, follow" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="theme-color" content="#edf1f5" />
     <link rel="canonical" href="https://ifcexplorer.github.io/" />
 
     <!-- ═══ Open Graph (Facebook / LinkedIn previews) ═══ -->
@@ -388,7 +388,10 @@
             if (!this._isScenePointerEvent(e)) return;
             e.preventDefault();
             const factor = e.shiftKey ? 0.01 : 0.05;
-            this._r = Math.max(1, Math.min(800, this._r + e.deltaY * factor));
+            const nextRadius = this._r + e.deltaY * factor;
+            if (Number.isFinite(nextRadius)) {
+              this._r = Math.max(0.001, nextRadius);
+            }
             this._cancelAnim();
             this._applyTransform();
           };
@@ -419,18 +422,205 @@
             this._animRaf = null;
           }
         },
-        recenter() {
+        _getCameraAspect() {
+          const camera =
+            this.el.sceneEl?.camera ||
+            document.querySelector("#camera")?.getObject3D("camera");
+          if (camera?.aspect) return camera.aspect;
+          const rect = window.getViewerViewportRect?.();
+          if (rect?.width > 0 && rect?.height > 0) {
+            return rect.width / rect.height;
+          }
+          return 1;
+        },
+        _isFiniteBox(box) {
+          return (
+            box &&
+            !box.isEmpty() &&
+            Number.isFinite(box.min.x) &&
+            Number.isFinite(box.min.y) &&
+            Number.isFinite(box.min.z) &&
+            Number.isFinite(box.max.x) &&
+            Number.isFinite(box.max.y) &&
+            Number.isFinite(box.max.z)
+          );
+        },
+        _expandBoxByObjectGeometry(box, object) {
+          if (!box || !object) return false;
+          try {
+            object.updateWorldMatrix?.(true, true);
+            object.updateMatrixWorld?.(true);
+          } catch (_) {}
+
+          let expanded = false;
+          object.traverse?.((child) => {
+            if (!child.visible || !child.geometry) return;
+            const childBox = new THREE.Box3().setFromObject(child);
+            if (!this._isFiniteBox(childBox)) return;
+            box.union(childBox);
+            expanded = true;
+          });
+          return expanded;
+        },
+        _getModelBox() {
           const world = document.querySelector("#a_world")?.object3D;
-          if (!world) return;
-          const box = new THREE.Box3().setFromObject(world);
-          if (box.isEmpty()) return;
+          const worldBox = new THREE.Box3();
+          if (this._expandBoxByObjectGeometry(worldBox, world)) {
+            return worldBox;
+          }
+
+          const activeBox = new THREE.Box3();
+          if (this._expandBoxByObjectGeometry(activeBox, window.activeIfcModel)) {
+            return activeBox;
+          }
+
+          return null;
+        },
+        _vectorFromPoint(point) {
+          if (!point) return null;
+          if (point.isVector3) return point.clone();
+          const x = Number(point.x);
+          const y = Number(point.y);
+          const z = Number(point.z);
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+            return null;
+          }
+          return new THREE.Vector3(x, y, z);
+        },
+        _isBoxNearPoint(box, point) {
+          if (!this._isFiniteBox(box)) return false;
+          const hitPoint = this._vectorFromPoint(point);
+          if (!hitPoint) return true;
+          const closest = hitPoint.clone().clamp(box.min, box.max);
+          const size = box.getSize(new THREE.Vector3()).length();
+          return closest.distanceTo(hitPoint) <= Math.max(size * 0.25, 0.5);
+        },
+        _isWholeModelBox(box) {
+          if (!this._isFiniteBox(box)) return false;
+          const modelBox = this._getModelBox();
+          if (!this._isFiniteBox(modelBox)) return false;
+          const boxSize = box.getSize(new THREE.Vector3()).length();
+          const modelSize = modelBox.getSize(new THREE.Vector3()).length();
+          if (!Number.isFinite(modelSize) || modelSize <= 0) return false;
+          const boxCenter = box.getCenter(new THREE.Vector3());
+          const modelCenter = modelBox.getCenter(new THREE.Vector3());
+          return (
+            boxSize >= modelSize * 0.85 &&
+            boxCenter.distanceTo(modelCenter) <= Math.max(modelSize * 0.1, 0.5)
+          );
+        },
+        _focusPoint(point) {
+          const hitPoint = this._vectorFromPoint(point);
+          if (!hitPoint) return false;
+          const modelBox = this._getModelBox();
+          const modelSize = modelBox
+            ? modelBox.getSize(new THREE.Vector3()).length()
+            : 1;
+          const size = Math.max(modelSize * 0.025, 0.5);
+          const box = new THREE.Box3().setFromCenterAndSize(
+            hitPoint,
+            new THREE.Vector3(size, size, size),
+          );
+          return this._focusBox(box, 1.35);
+        },
+        _getFitRadius(box, padding) {
           const c = box.getCenter(new THREE.Vector3());
+          const corners = [
+            new THREE.Vector3(box.min.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.min.y, box.max.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+            new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+          ];
+          const viewFromTarget = new THREE.Vector3(
+            Math.sin(this._phi) * Math.sin(this._theta),
+            Math.cos(this._phi),
+            Math.sin(this._phi) * Math.cos(this._theta),
+          );
+          if (viewFromTarget.lengthSq() === 0) viewFromTarget.set(0, 0, 1);
+          viewFromTarget.normalize();
+
+          const forward = viewFromTarget.clone().multiplyScalar(-1);
+          const worldUp =
+            Math.abs(forward.dot(new THREE.Vector3(0, 1, 0))) > 0.98
+              ? new THREE.Vector3(0, 0, 1)
+              : new THREE.Vector3(0, 1, 0);
+          const right = new THREE.Vector3()
+            .crossVectors(forward, worldUp)
+            .normalize();
+          const up = new THREE.Vector3()
+            .crossVectors(right, forward)
+            .normalize();
+
+          let halfWidth = 0;
+          let halfHeight = 0;
+          let halfDepth = 0;
+          for (const corner of corners) {
+            const rel = corner.sub(c);
+            halfWidth = Math.max(halfWidth, Math.abs(rel.dot(right)));
+            halfHeight = Math.max(halfHeight, Math.abs(rel.dot(up)));
+            halfDepth = Math.max(halfDepth, Math.abs(rel.dot(forward)));
+          }
+
+          const camera =
+            this.el.sceneEl?.camera ||
+            document.querySelector("#camera")?.getObject3D("camera");
+          const verticalFov =
+            THREE.MathUtils.degToRad(camera?.fov || 50) || Math.PI / 4;
+          const horizontalFov =
+            2 * Math.atan(Math.tan(verticalFov / 2) * this._getCameraAspect());
+          const fitHeight = halfHeight / Math.tan(verticalFov / 2);
+          const fitWidth = halfWidth / Math.tan(horizontalFov / 2);
           const sz = box.getSize(new THREE.Vector3());
+          const minDistance = Math.max(Math.max(sz.x, sz.y, sz.z) * 0.05, 0.01);
+          return (
+            Math.max(
+              0.001,
+              Math.max(fitHeight, fitWidth, minDistance) + halfDepth,
+            ) * padding
+          );
+        },
+        _focusBox(box, padding) {
+          if (!this._isFiniteBox(box)) return false;
+          const c = box.getCenter(new THREE.Vector3());
           this._tx = c.x;
           this._ty = c.y;
           this._tz = c.z;
-          this._r = Math.max(10, sz.length() * 0.75);
+          this._r = this._getFitRadius(box, padding || 1.15);
           this._applyTransform();
+          return true;
+        },
+        recenter() {
+          const box = this._getModelBox();
+          return this._focusBox(box, 1.12);
+        },
+        zoomToSelectionOrModel() {
+          const activeModelID = window.getActiveModelId?.();
+          const selected = window.selectedIfcElement;
+          const selectionMatchesModel =
+            selected &&
+            activeModelID != null &&
+            Number(selected.modelID) === Number(activeModelID);
+          if (
+            selected?.bounds &&
+            selectionMatchesModel &&
+            (!selected.point || !this._isWholeModelBox(selected.bounds)) &&
+            this._isBoxNearPoint(selected.bounds, selected.point) &&
+            this._focusBox(selected.bounds.clone(), 1.18)
+          ) {
+            return true;
+          }
+          if (
+            selected?.point &&
+            selectionMatchesModel &&
+            this._focusPoint(selected.point)
+          ) {
+            return true;
+          }
+          return this.recenter();
         },
         goToView(theta, phi, duration) {
           const t0 = this._theta,
@@ -464,17 +654,13 @@
           if (this.data.enabled) {
             this._savedRigPos = rig.object3D.position.clone();
             this._savedCameraPos = cam.object3D.position.clone();
-            const world = document.querySelector("#a_world")?.object3D;
-            if (world) {
-              const box = new THREE.Box3().setFromObject(world);
-              if (!box.isEmpty()) {
-                const c = box.getCenter(new THREE.Vector3());
-                const sz = box.getSize(new THREE.Vector3());
-                this._tx = c.x;
-                this._ty = c.y;
-                this._tz = c.z;
-                this._r = Math.max(10, sz.length() * 0.75);
-              }
+            const box = this._getModelBox();
+            if (box) {
+              const c = box.getCenter(new THREE.Vector3());
+              this._tx = c.x;
+              this._ty = c.y;
+              this._tz = c.z;
+              this._r = this._getFitRadius(box, 1.12);
             }
             cam.setAttribute("new-wasd-controls", "enabled", false);
             cam.setAttribute("look-controls", "enabled", false);
@@ -920,6 +1106,9 @@
             <button class="rb-btn" onclick="vcSnap(-0.7854, 1.0472)">
               <span class="rb-icon">&#8962;</span>Home
             </button>
+            <button class="rb-btn" onclick="zoomToSelectionOrModel()">
+              <span class="rb-icon">&#8981;</span>Zoom
+            </button>
             <button class="rb-btn" onclick="vcSnap(0, 0.05)">
               <span class="rb-icon">&#8857;</span>Top
             </button>
@@ -1158,6 +1347,7 @@
       window.ifcSpatialStructure = null;
       window.activeIfcModel = null;
       window.activeIfcLoadToken = 0;
+      window.selectedIfcElement = null;
 
       const ifcModels = [];
       const ifcLoader = new IFCLoader();
@@ -1187,24 +1377,29 @@
           // Guard BEFORE writing CSS vars — prevents canvas being set to 0 width (black screen)
           if (rect.width <= 0 || rect.height <= 0) return;
 
+          const viewLeft = Math.floor(rect.left);
+          const viewTop = Math.floor(rect.top);
+          const viewWidth = Math.ceil(rect.width + (rect.left - viewLeft));
+          const viewHeight = Math.ceil(rect.height + (rect.top - viewTop));
+
           const rootStyle = document.documentElement.style;
-          rootStyle.setProperty("--viewer-top", `${rect.top}px`);
-          rootStyle.setProperty("--viewer-left", `${rect.left}px`);
-          rootStyle.setProperty("--viewer-width", `${rect.width}px`);
-          rootStyle.setProperty("--viewer-height", `${rect.height}px`);
+          rootStyle.setProperty("--viewer-top", `${viewTop}px`);
+          rootStyle.setProperty("--viewer-left", `${viewLeft}px`);
+          rootStyle.setProperty("--viewer-width", `${viewWidth}px`);
+          rootStyle.setProperty("--viewer-height", `${viewHeight}px`);
 
           const sceneEl = document.querySelector("#a_scene");
           if (!sceneEl) return;
 
           if (sceneEl.renderer) {
-            sceneEl.renderer.setSize(rect.width, rect.height, false);
+            sceneEl.renderer.setSize(viewWidth, viewHeight, false);
           }
 
           const camera =
             sceneEl.camera ||
             document.querySelector("#camera")?.getObject3D("camera");
           if (camera) {
-            camera.aspect = rect.width / rect.height;
+            camera.aspect = viewWidth / viewHeight;
             camera.updateProjectionMatrix?.();
           }
           // Force a re-render so the scene is not blank after resize
@@ -1390,6 +1585,12 @@
       window.vcSnap = function (theta, phi) {
         const oc = document.querySelector("a-scene").components["viewer-orbit"];
         if (oc && oc.data.enabled) oc.goToView(theta, phi, 450);
+      };
+
+      window.zoomToSelectionOrModel = function () {
+        if (window.setViewerMode) window.setViewerMode("3d");
+        const oc = document.querySelector("a-scene").components["viewer-orbit"];
+        if (oc?.zoomToSelectionOrModel) oc.zoomToSelectionOrModel();
       };
 
       // ── Floor teleport ────────────────────────────────────────────────
@@ -1848,6 +2049,7 @@
         window.space_subset = null;
         window.ifcSpatialStructure = null;
         window.activeIfcModel = null;
+        window.selectedIfcElement = null;
         ifcModels.length = 0;
         window.storeyData = null;
         window.storeyList = [];

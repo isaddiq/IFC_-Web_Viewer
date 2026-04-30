@@ -629,6 +629,60 @@ function __openIfcPropertiesPanel() {
   }
 }
 
+function __normalizeIfcSelectionPoint(point) {
+  if (!point) return null;
+  const x = Number(point.x);
+  const y = Number(point.y);
+  const z = Number(point.z);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+    return null;
+  }
+  return { x, y, z };
+}
+
+function __isUsableIfcBox(box) {
+  return (
+    box &&
+    !box.isEmpty() &&
+    Number.isFinite(box.min.x) &&
+    Number.isFinite(box.min.y) &&
+    Number.isFinite(box.min.z) &&
+    Number.isFinite(box.max.x) &&
+    Number.isFinite(box.max.y) &&
+    Number.isFinite(box.max.z)
+  );
+}
+
+function __storeIfcSelectionBounds(modelid, expressID, subset, fallbackPoint) {
+  const point = __normalizeIfcSelectionPoint(fallbackPoint);
+  let bounds = null;
+  if (subset && typeof THREE !== 'undefined') {
+    try {
+      subset.updateWorldMatrix?.(true, true);
+      subset.updateMatrixWorld?.(true);
+      bounds = new THREE.Box3().setFromObject(subset);
+      if (!__isUsableIfcBox(bounds)) bounds = null;
+      if (bounds && point) {
+        const hitPoint = new THREE.Vector3(point.x, point.y, point.z);
+        const closest = hitPoint.clone().clamp(bounds.min, bounds.max);
+        const size = bounds.getSize(new THREE.Vector3()).length();
+        if (closest.distanceTo(hitPoint) > Math.max(size * 0.25, 0.5)) {
+          bounds = null;
+        }
+      }
+    } catch (error) {
+      console.warn(`Selection bounds skipped for #${expressID}:`, error);
+      bounds = null;
+    }
+  }
+  window.selectedIfcElement = {
+    modelID: modelid,
+    expressID: Number(expressID),
+    bounds,
+    point,
+  };
+}
+
 function __syncSchemaSelection(expressID, scrollIntoView) {
   document
     .querySelectorAll('.tree-header.selected')
@@ -660,13 +714,14 @@ async function __renderIfcSelection(modelid, expressID, options = {}) {
       ? options.highlightIds.map(Number).filter(Number.isFinite)
       : [Number(expressID)];
     try {
-      ifc.createSubset({
+      const highlightSubset = ifc.createSubset({
         modelID: modelid,
         ids: highlightIDs,
         material: mat,
         scene: window.scene || scene,
         removePrevious: true,
       });
+      __storeIfcSelectionBounds(modelid, expressID, highlightSubset);
     } catch (error) {
       console.warn(`Highlight skipped for #${expressID}:`, error);
     }
@@ -833,13 +888,14 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
         // }
 
         // 객체를 항상 하이라이트하기 위해 조건문을 제거하고 ifc.createSubset 호출
-        ifc.createSubset({
+        const highlightSubset = ifc.createSubset({
            modelID: modelid,
           ids: exIds,
           material: mat,
           scene: scene,
           removePrevious: true,
           });
+        __storeIfcSelectionBounds(modelid, expid, highlightSubset, intersects.point);
 
         // 계단일 경우 부모의 property set을 사용
         if (type == "IFCSTAIR") {
@@ -1012,6 +1068,7 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
       }    // end if(intersects)
       else {
         // Clicked empty space – close property panel
+        window.selectedIfcElement = null;
         if (window.htmlPsetInfo) window.htmlPsetInfo.classList.remove('panel-open');
       }
     }  // end click_act
