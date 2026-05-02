@@ -1441,7 +1441,9 @@
             onclick="openRightPanel()"
             title="Properties"
           >
-            <span aria-hidden="true"><i class="fi-sr-file-circle-info"></i></span>
+            <span aria-hidden="true"
+              ><i class="fi-sr-file-circle-info"></i
+            ></span>
           </button>
           <button
             id="measureToolBtn"
@@ -1452,18 +1454,10 @@
             <span aria-hidden="true"><i class="fi-sr-ruler-combined"></i></span>
           </button>
           <span class="rail-spacer" aria-hidden="true"></span>
-          <button
-            class="rail-btn"
-            onclick="openViewerReport()"
-            title="Reports"
-          >
+          <button class="rail-btn" onclick="openViewerReport()" title="Reports">
             <span aria-hidden="true"><i class="fi-sr-clipboard-list"></i></span>
           </button>
-          <button
-            class="rail-btn"
-            onclick="openAboutPanel()"
-            title="Info"
-          >
+          <button class="rail-btn" onclick="openAboutPanel()" title="Info">
             <span aria-hidden="true"><i class="fi-sr-info"></i></span>
           </button>
           <button
@@ -1471,7 +1465,9 @@
             onclick="toggleLeftPanel()"
             title="Collapse schema"
           >
-            <span aria-hidden="true"><i class="fi-sr-angle-double-right"></i></span>
+            <span aria-hidden="true"
+              ><i class="fi-sr-angle-double-right"></i
+            ></span>
           </button>
         </div>
         <!-- LEFT PANEL -->
@@ -1601,11 +1597,7 @@
             class="viewport-tool-stack"
             aria-label="Viewport navigation tools"
           >
-            <button
-              id="panToolBtn"
-              onclick="togglePanMode()"
-              aria-label="Pan"
-            >
+            <button id="panToolBtn" onclick="togglePanMode()" aria-label="Pan">
               <i class="fi-sr-hand-back-fist" aria-hidden="true"></i>
             </button>
             <button
@@ -2010,11 +2002,13 @@
           .slice(0, 80)
           .map((row) => ({
             type:
-              row.querySelector(".tree-type-label, .tree-label")?.textContent?.trim() ||
-              "Unknown",
+              row
+                .querySelector(".tree-type-label, .tree-label")
+                ?.textContent?.trim() || "Unknown",
             count:
-              row.querySelector(".tree-type-count, .tree-count")?.textContent?.trim() ||
-              "",
+              row
+                .querySelector(".tree-type-count, .tree-count")
+                ?.textContent?.trim() || "",
           }));
         return {
           generatedAt: new Date().toISOString(),
@@ -2192,7 +2186,9 @@
                 statusHidden ? "" : "checked"
               } onchange="toggleStatusbarVisible(this.checked)" /> Show status bar</label>
               <label><input type="checkbox" ${
-                document.getElementById("uiRibbon")?.classList.contains("ribbon-collapsed")
+                document
+                  .getElementById("uiRibbon")
+                  ?.classList.contains("ribbon-collapsed")
                   ? "checked"
                   : ""
               } onchange="setRibbonCollapsed(this.checked)" /> Collapse ribbon</label>
@@ -2209,7 +2205,9 @@
       window.setSceneHelperVisible = setSceneHelperVisible;
 
       window.toggleStatusbarVisible = function (visible) {
-        document.getElementById("overlay")?.classList.toggle("hide-statusbar", !visible);
+        document
+          .getElementById("overlay")
+          ?.classList.toggle("hide-statusbar", !visible);
         syncViewerViewport();
       };
 
@@ -2292,9 +2290,11 @@
       };
 
       window.setSchemaExpanded = function (expanded) {
-        document.querySelectorAll("#schemaTree .tree-children").forEach((el) => {
-          el.classList.toggle("collapsed", !expanded);
-        });
+        document
+          .querySelectorAll("#schemaTree .tree-children")
+          .forEach((el) => {
+            el.classList.toggle("collapsed", !expanded);
+          });
         document.querySelectorAll("#schemaTree .tree-toggle").forEach((el) => {
           if (!el.classList.contains("leaf")) {
             el.classList.toggle("expanded", expanded);
@@ -2315,7 +2315,9 @@
       };
 
       document.addEventListener("click", (event) => {
-        if (!event.target.closest(".ui-popover, .ui-action-icon, .panel-tool-btn")) {
+        if (
+          !event.target.closest(".ui-popover, .ui-action-icon, .panel-tool-btn")
+        ) {
           closeUiPopovers();
         }
       });
@@ -2341,7 +2343,10 @@
 
         fileInputEl.value = "";
         clearModel();
-        loadIFC("assets/ifc/Building-Structural.ifc", "Building-Structural.ifc");
+        loadIFC(
+          "assets/ifc/Building-Structural.ifc",
+          "Building-Structural.ifc",
+        );
       };
 
       // ── View Mode toggle ──────────────────────────────────────────────
@@ -2518,7 +2523,9 @@
         document
           .getElementById("measureToolBtn")
           ?.classList.toggle("active", next);
-        document.getElementById("overlay")?.classList.toggle("measure-active", next);
+        document
+          .getElementById("overlay")
+          ?.classList.toggle("measure-active", next);
         const readout = ensureMeasureReadout();
         readout.classList.toggle("show", next);
         readout.textContent = next
@@ -2530,7 +2537,8 @@
       };
 
       function handleMeasurePointerDown(event) {
-        if (!window.measureMode || !window.isViewerPointerEvent?.(event)) return;
+        if (!window.measureMode || !window.isViewerPointerEvent?.(event))
+          return;
         event.preventDefault();
         event.stopPropagation();
         const point = getMeasurePointFromEvent(event);
@@ -3291,7 +3299,10 @@
         if (node?.Name?.value || node?.LongName?.value || node?.name) {
           return false;
         }
-        return /^#?\d+$/.test(String(label ?? "")) || /^IFC[A-Z0-9_]*$/.test(String(label ?? ""));
+        return (
+          /^#?\d+$/.test(String(label ?? "")) ||
+          /^IFC[A-Z0-9_]*$/.test(String(label ?? ""))
+        );
       }
 
       function flaticonIcon(name) {
@@ -3466,20 +3477,25 @@
           groups.get(type).push(node);
         }
         if (node.children) {
-          for (const child of node.children) collectSchemaTypeRows(child, groups);
+          for (const child of node.children)
+            collectSchemaTypeRows(child, groups);
         }
       }
 
       function renderSchemaTypeView(root) {
         const groups = new Map();
         collectSchemaTypeRows(root, groups);
-        const rows = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const rows = [...groups.entries()].sort((a, b) =>
+          a[0].localeCompare(b[0]),
+        );
         if (!rows.length) {
           return '<div class="panel-placeholder">No IFC elements found in the schema.</div>';
         }
         return rows
           .map(([typeName, items]) => {
-            const itemsHtml = items.map((item) => renderSchemaNode(item)).join("");
+            const itemsHtml = items
+              .map((item) => renderSchemaNode(item))
+              .join("");
             return `
               <div class="tree-node tree-type-group tree-type-group--root" data-express-id="" data-type-name="${escapeSchemaText(typeName)}">
                 <div class="tree-header tree-type-header" onclick="handleSchemaNodeClick(event, this)">
@@ -3572,7 +3588,8 @@
           statusbarSelectionEl.textContent = selectionText;
           statusbarSelectionEl.classList.toggle(
             "ifc-technical-value",
-            /^#?\d+$/.test(selectionText) || /^IFC[A-Z0-9_]*$/.test(selectionText),
+            /^#?\d+$/.test(selectionText) ||
+              /^IFC[A-Z0-9_]*$/.test(selectionText),
           );
         }
         if (window.selectIfcElementByExpressId) {
