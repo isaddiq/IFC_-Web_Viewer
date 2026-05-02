@@ -84,6 +84,10 @@
     </script>
 
     <link rel="stylesheet" href="assets/css/app.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn-uicons.flaticon.com/3.0.0/uicons-solid-rounded/css/uicons-solid-rounded.css"
+    />
     <link rel="icon" href="data:," />
     <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
     <script>
@@ -125,7 +129,7 @@
       window.isViewerPointerEvent = function (event) {
         if (!event) return false;
         const uiTarget = event.target?.closest?.(
-          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .memo-wrap, .modal",
+          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .memo-wrap, .modal, .ui-popover",
         );
         if (uiTarget) return false;
         return window.isPointInViewer(event.clientX, event.clientY);
@@ -291,7 +295,12 @@
               return;
             }
             this._pointerStartedInViewer = true;
-            if (e.button === 0) {
+            if (e.button === 0 && window.forcePanMode) {
+              this._panDrag = true;
+              this._px = e.clientX;
+              this._py = e.clientY;
+              e.preventDefault();
+            } else if (e.button === 0) {
               // Left click: record start but don't start orbiting yet (need drag threshold)
               this._pendingOrbit = true;
               this._orbitDrag = false;
@@ -426,12 +435,21 @@
           const camera =
             this.el.sceneEl?.camera ||
             document.querySelector("#camera")?.getObject3D("camera");
-          if (camera?.aspect) return camera.aspect;
+          const cameraAspect = Number(camera?.aspect);
+          if (Number.isFinite(cameraAspect) && cameraAspect > 0) {
+            return cameraAspect;
+          }
           const rect = window.getViewerViewportRect?.();
           if (rect?.width > 0 && rect?.height > 0) {
-            return rect.width / rect.height;
+            const rectAspect = rect.width / rect.height;
+            if (Number.isFinite(rectAspect) && rectAspect > 0)
+              return rectAspect;
           }
-          return 1;
+          const windowAspect =
+            window.innerWidth / Math.max(window.innerHeight, 1);
+          return Number.isFinite(windowAspect) && windowAspect > 0
+            ? windowAspect
+            : 1;
         },
         _isFiniteBox(box) {
           return (
@@ -470,7 +488,9 @@
           }
 
           const activeBox = new THREE.Box3();
-          if (this._expandBoxByObjectGeometry(activeBox, window.activeIfcModel)) {
+          if (
+            this._expandBoxByObjectGeometry(activeBox, window.activeIfcModel)
+          ) {
             return activeBox;
           }
 
@@ -482,7 +502,11 @@
           const x = Number(point.x);
           const y = Number(point.y);
           const z = Number(point.z);
-          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+          if (
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            !Number.isFinite(z)
+          ) {
             return null;
           }
           return new THREE.Vector3(x, y, z);
@@ -568,20 +592,30 @@
           const camera =
             this.el.sceneEl?.camera ||
             document.querySelector("#camera")?.getObject3D("camera");
-          const verticalFov =
-            THREE.MathUtils.degToRad(camera?.fov || 50) || Math.PI / 4;
+          let verticalFov =
+            THREE.MathUtils.degToRad(Number(camera?.fov) || 50) || Math.PI / 4;
+          if (!Number.isFinite(verticalFov) || verticalFov <= 0) {
+            verticalFov = Math.PI / 4;
+          }
           const horizontalFov =
             2 * Math.atan(Math.tan(verticalFov / 2) * this._getCameraAspect());
-          const fitHeight = halfHeight / Math.tan(verticalFov / 2);
-          const fitWidth = halfWidth / Math.tan(horizontalFov / 2);
+          const verticalTan = Math.tan(verticalFov / 2);
+          const horizontalTan = Math.tan(horizontalFov / 2);
+          const fitHeight =
+            halfHeight > 0 && verticalTan > 0 ? halfHeight / verticalTan : 0;
+          const fitWidth =
+            halfWidth > 0 && horizontalTan > 0 ? halfWidth / horizontalTan : 0;
           const sz = box.getSize(new THREE.Vector3());
           const minDistance = Math.max(Math.max(sz.x, sz.y, sz.z) * 0.05, 0.01);
-          return (
-            Math.max(
-              0.001,
-              Math.max(fitHeight, fitWidth, minDistance) + halfDepth,
-            ) * padding
-          );
+          const baseDistance =
+            Math.max(fitHeight, fitWidth, minDistance) + halfDepth;
+          const safeDistance = Number.isFinite(baseDistance)
+            ? baseDistance
+            : minDistance;
+          const safePadding = Number.isFinite(Number(padding))
+            ? Number(padding)
+            : 1.15;
+          return Math.max(0.001, safeDistance * Math.max(safePadding, 0.001));
         },
         _focusBox(box, padding) {
           if (!this._isFiniteBox(box)) return false;
@@ -699,21 +733,41 @@
             }
           }
         },
+        _sanitizeOrbitState() {
+          if (!Number.isFinite(this._theta)) this._theta = -Math.PI / 4;
+          if (!Number.isFinite(this._phi)) this._phi = Math.PI / 3;
+          this._phi = Math.max(0.05, Math.min(Math.PI - 0.05, this._phi));
+          if (!Number.isFinite(this._r) || this._r < 0.001) this._r = 0.001;
+          if (!Number.isFinite(this._tx)) this._tx = 0;
+          if (!Number.isFinite(this._ty)) this._ty = 0;
+          if (!Number.isFinite(this._tz)) this._tz = 0;
+        },
         _applyTransform() {
+          this._sanitizeOrbitState();
           const tx = this._tx,
             ty = this._ty,
             tz = this._tz;
           const x = tx + this._r * Math.sin(this._phi) * Math.sin(this._theta);
           const y = ty + this._r * Math.cos(this._phi);
           const z = tz + this._r * Math.sin(this._phi) * Math.cos(this._theta);
+          if (
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            !Number.isFinite(z)
+          ) {
+            return;
+          }
           const rig = document.querySelector("#cameraRig");
+          if (!rig?.object3D) return;
           rig.object3D.position.set(x, y, z);
           rig.object3D.lookAt(2 * x - tx, 2 * y - ty, 2 * z - tz);
           const cube = document.getElementById("view-cube");
           if (cube) {
-            const rx = (((Math.PI / 2 - this._phi) * 180) / Math.PI).toFixed(2);
-            const ry = ((-this._theta * 180) / Math.PI).toFixed(2);
-            cube.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+            const rx = ((Math.PI / 2 - this._phi) * 180) / Math.PI;
+            const ry = (-this._theta * 180) / Math.PI;
+            const visualRx = -24 + rx * 0.18;
+            const visualRy = 38 + ry * 0.18;
+            cube.style.transform = `rotateX(${visualRx.toFixed(2)}deg) rotateY(${visualRy.toFixed(2)}deg)`;
           }
         },
         remove() {
@@ -1008,10 +1062,16 @@
     </a-scene>
 
     <!-- ── WebXR Overlay ── -->
-    <div id="overlay">
+    <div id="overlay" class="app-shell">
       <!-- ══ TOP MENU BAR ══ -->
       <div class="ui-menubar">
-        <div class="ui-brand">&#x2B21; IFCExplorer</div>
+        <div class="ui-brand" aria-label="IFCExplorer BIM Viewer">
+          <span class="brand-mark" aria-hidden="true">&#11042;</span>
+          <span class="brand-copy">
+            <span class="brand-name">IFCExplorer</span>
+            <span class="brand-subtitle">BIM Viewer</span>
+          </span>
+        </div>
         <div class="ui-menubar-center">
           <span id="model-filename" class="ui-filename">No model loaded</span>
           <span id="load-status" class="load-status-info"
@@ -1026,63 +1086,136 @@
             style="display: none"
           />
           <button
+            class="ui-action-btn ui-action-btn--primary"
+            onclick="openIfcFilePicker()"
+          >
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-folder-open"></i>
+            </span>
+            <span>Open IFC</span>
+            <span class="ui-action-caret" aria-hidden="true">
+              <i class="fi-sr-angle-small-down"></i>
+            </span>
+          </button>
+          <button class="ui-action-btn" onclick="openIfcFilePicker()">
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-file-import"></i>
+            </span>
+            <span>Import</span>
+          </button>
+          <button
+            class="ui-action-btn"
+            onclick="exportCurrentModelReport('json')"
+          >
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-file-export"></i>
+            </span>
+            <span>Export</span>
+          </button>
+          <button class="ui-action-btn" onclick="shareViewerLink()">
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-share"></i>
+            </span>
+            <span>Share</span>
+          </button>
+          <button
+            class="ui-action-icon"
+            onclick="toggleMoreActionsMenu(this)"
+            aria-label="More actions"
+            title="More actions"
+          >
+            <i class="fi-sr-menu-dots-vertical" aria-hidden="true"></i>
+          </button>
+          <button
+            id="visitor-counter-btn"
+            class="vc-fab"
+            title="Visitor Statistics"
+            onclick="
+              document.getElementById('vc-popover').classList.toggle('vc-open')
+            "
+            aria-label="Show visitor statistics"
+          >
+            <span class="vc-fab-icon" aria-hidden="true">
+              <i class="fi-sr-users"></i>
+            </span>
+            <span class="vc-fab-label">Visitors</span>
+          </button>
+          <button
             id="exitXR"
             type="button"
             class="ui-menu-btn ui-xr-btn"
             style="display: none"
           >
-            <span class="btn-icon" aria-hidden="true">&#10006;</span>
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-cross-circle"></i>
+            </span>
             <span>Exit XR</span>
           </button>
         </div>
       </div>
 
       <!-- ══ RIBBON ══ -->
-      <div class="ui-ribbon">
+      <div class="ui-ribbon" id="uiRibbon">
         <div class="ribbon-tabs">
-          <button
-            class="ribbon-tab active"
-            onclick="showRibbonTab('file', this)"
-          >
-            <span class="btn-icon" aria-hidden="true">&#128193;</span>
+          <button class="ribbon-tab" onclick="showRibbonTab('file', this)">
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-folder-open"></i>
+            </span>
             File
           </button>
-          <button class="ribbon-tab" onclick="showRibbonTab('view', this)">
-            <span class="btn-icon" aria-hidden="true">&#9635;</span>
+          <button
+            class="ribbon-tab active"
+            onclick="showRibbonTab('view', this)"
+          >
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-model-cube"></i>
+            </span>
             View
           </button>
           <button class="ribbon-tab" onclick="showRibbonTab('navigate', this)">
-            <span class="btn-icon" aria-hidden="true">&#10148;</span>
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-route"></i>
+            </span>
             Navigate
           </button>
           <button
             class="ribbon-tab"
             onclick="showRibbonTab('visibility', this)"
           >
-            <span class="btn-icon" aria-hidden="true">&#128065;</span>
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-eye"></i>
+            </span>
             Visibility
           </button>
           <button class="ribbon-tab" onclick="showRibbonTab('systems', this)">
-            <span class="btn-icon" aria-hidden="true">&#9881;</span>
+            <span class="btn-icon" aria-hidden="true">
+              <i class="fi-sr-settings"></i>
+            </span>
             Systems
           </button>
         </div>
 
         <!-- Tab: File -->
-        <div class="ribbon-panel active" id="ribbon-file">
+        <div class="ribbon-panel" id="ribbon-file">
           <div class="ribbon-group">
             <div class="ribbon-group-label">Model</div>
             <button class="rb-btn" onclick="openIfcFilePicker()">
-              <span class="rb-icon">&#128194;</span>Open IFC File
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-folder-open"></i>
+              </span>
+              Open IFC File
             </button>
             <button class="rb-btn" onclick="openSampleFile()">
-              <span class="rb-icon">&#127970;</span>Open Sample File
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-building"></i>
+              </span>
+              Open Sample File
             </button>
           </div>
         </div>
 
         <!-- Tab: View -->
-        <div class="ribbon-panel" id="ribbon-view">
+        <div class="ribbon-panel active" id="ribbon-view">
           <div class="ribbon-group">
             <div class="ribbon-group-label">Mode</div>
             <button
@@ -1090,33 +1223,48 @@
               id="btn-3d-viewer"
               onclick="setViewerMode('3d')"
             >
-              <span class="rb-icon">&#9678;</span>3D Orbit
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-model-cube-arrows"></i>
+              </span>
+              3D Orbit
             </button>
             <button
               class="rb-btn"
               id="btn-walker"
               onclick="setViewerMode('walk')"
             >
-              <span class="rb-icon">&#9654;</span>Walk
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-walking"></i>
+              </span>
+              Walk
             </button>
           </div>
           <div class="ribbon-sep"></div>
           <div class="ribbon-group">
             <div class="ribbon-group-label">Camera</div>
             <button class="rb-btn" onclick="vcSnap(-0.7854, 1.0472)">
-              <span class="rb-icon">&#8962;</span>Home
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-home"></i>
+              </span>
+              Home
             </button>
             <button class="rb-btn" onclick="zoomToSelectionOrModel()">
-              <span class="rb-icon">&#8981;</span>Zoom
-            </button>
-            <button class="rb-btn" onclick="vcSnap(0, 0.05)">
-              <span class="rb-icon">&#8857;</span>Top
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-search"></i>
+              </span>
+              Zoom
             </button>
             <button class="rb-btn" onclick="vcSnap(0, 1.5708)">
-              <span class="rb-icon">&#9633;</span>Front
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-cube"></i>
+              </span>
+              Front
             </button>
             <button class="rb-btn" onclick="vcSnap(1.5708, 1.5708)">
-              <span class="rb-icon">&#9633;</span>Right
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-cube"></i>
+              </span>
+              Right
             </button>
           </div>
           <div class="ribbon-sep"></div>
@@ -1129,7 +1277,10 @@
                 title="Scene background"
               />
               <button class="rb-btn-sm" id="reset">
-                <span class="btn-icon" aria-hidden="true">&#8634;</span>Reset
+                <span class="btn-icon" aria-hidden="true">
+                  <i class="fi-sr-refresh"></i>
+                </span>
+                Reset
               </button>
             </div>
           </div>
@@ -1137,10 +1288,34 @@
           <div class="ribbon-group">
             <div class="ribbon-group-label">Panels</div>
             <button class="rb-btn" onclick="toggleLeftPanel()">
-              <span class="rb-icon">&#9776;</span>Schema
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-list"></i>
+              </span>
+              Schema
             </button>
             <button class="rb-btn" id="spaceInfobtn">
-              <span class="rb-icon">&#9432;</span>Spaces
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-info"></i>
+              </span>
+              Spaces
+            </button>
+          </div>
+          <div class="ribbon-group ribbon-group--utility">
+            <button
+              class="rb-icon-btn"
+              onclick="openHelpPanel()"
+              aria-label="Help"
+              title="Help"
+            >
+              <i class="fi-sr-question" aria-hidden="true"></i>
+            </button>
+            <button
+              class="rb-icon-btn"
+              onclick="openViewerSettings()"
+              aria-label="Settings"
+              title="Settings"
+            >
+              <i class="fi-sr-settings" aria-hidden="true"></i>
             </button>
           </div>
         </div>
@@ -1154,7 +1329,10 @@
                 <option value="select">Loading floors…</option>
               </select>
               <button class="rb-go" onclick="setFloor()">
-                <span class="btn-icon" aria-hidden="true">&#10140;</span>Go
+                <span class="btn-icon" aria-hidden="true">
+                  <i class="fi-sr-arrow-right"></i>
+                </span>
+                Go
               </button>
               <span id="floor-level-status" class="floor-level-status">
                 No floor selected
@@ -1165,7 +1343,10 @@
           <div class="ribbon-group">
             <div class="ribbon-group-label">Position</div>
             <button class="rb-btn" id="positioning">
-              <span class="rb-icon">&#8942;</span>Adjust
+              <span class="rb-icon" aria-hidden="true">
+                <i class="fi-sr-settings-sliders"></i>
+              </span>
+              Adjust
             </button>
           </div>
         </div>
@@ -1198,7 +1379,10 @@
                 <option value="1">All</option>
               </select>
               <button class="rb-go" onclick="setDistributionLv()">
-                <span class="btn-icon" aria-hidden="true">&#128065;</span>Show
+                <span class="btn-icon" aria-hidden="true">
+                  <i class="fi-sr-eye"></i>
+                </span>
+                Show
               </button>
             </div>
           </div>
@@ -1211,24 +1395,144 @@
                 <option value="1">All</option>
               </select>
               <button class="rb-go" onclick="setBeamLv()">
-                <span class="btn-icon" aria-hidden="true">&#128065;</span>Show
+                <span class="btn-icon" aria-hidden="true">
+                  <i class="fi-sr-eye"></i>
+                </span>
+                Show
               </button>
             </div>
           </div>
         </div>
+        <button
+          id="ribbon-collapse-btn"
+          class="ribbon-collapse-btn"
+          type="button"
+          onclick="toggleRibbonCollapse()"
+          aria-label="Collapse ribbon"
+          aria-expanded="true"
+          title="Collapse ribbon"
+        >
+          <span class="ribbon-collapse-icon" aria-hidden="true">
+            <i class="fi-sr-angle-small-up"></i>
+          </span>
+        </button>
       </div>
       <!-- end ribbon -->
 
       <!-- ══ WORKSPACE (left | center | right) ══ -->
       <div class="ui-workspace">
+        <div class="ui-rail" aria-label="Viewer tools">
+          <button
+            class="rail-btn active"
+            onclick="toggleLeftPanel()"
+            title="Schema"
+          >
+            <span aria-hidden="true"><i class="fi-sr-list"></i></span>
+          </button>
+          <button
+            class="rail-btn"
+            onclick="setViewerMode('3d')"
+            title="3D model"
+          >
+            <span aria-hidden="true"><i class="fi-sr-model-cube"></i></span>
+          </button>
+          <button
+            class="rail-btn"
+            onclick="openRightPanel()"
+            title="Properties"
+          >
+            <span aria-hidden="true"><i class="fi-sr-file-circle-info"></i></span>
+          </button>
+          <button
+            id="measureToolBtn"
+            class="rail-btn"
+            onclick="toggleMeasureMode()"
+            title="Measure"
+          >
+            <span aria-hidden="true"><i class="fi-sr-ruler-combined"></i></span>
+          </button>
+          <span class="rail-spacer" aria-hidden="true"></span>
+          <button
+            class="rail-btn"
+            onclick="openViewerReport()"
+            title="Reports"
+          >
+            <span aria-hidden="true"><i class="fi-sr-clipboard-list"></i></span>
+          </button>
+          <button
+            class="rail-btn"
+            onclick="openAboutPanel()"
+            title="Info"
+          >
+            <span aria-hidden="true"><i class="fi-sr-info"></i></span>
+          </button>
+          <button
+            class="rail-btn rail-collapse"
+            onclick="toggleLeftPanel()"
+            title="Collapse schema"
+          >
+            <span aria-hidden="true"><i class="fi-sr-angle-double-right"></i></span>
+          </button>
+        </div>
         <!-- LEFT PANEL -->
         <div class="ui-left-panel" id="leftPanel">
           <div class="panel-section panel-section--grow">
-            <div class="panel-section-head">IFC Schema</div>
+            <div class="panel-section-head schema-panel-head">
+              <span>IFC Schema</span>
+              <span class="panel-head-actions">
+                <button
+                  class="panel-tool-btn"
+                  onclick="focusSchemaSearch()"
+                  aria-label="Filter schema"
+                  title="Filter schema"
+                >
+                  <i class="fi-sr-filter" aria-hidden="true"></i>
+                </button>
+                <button
+                  class="panel-tool-btn"
+                  onclick="toggleSchemaOptionsMenu(this)"
+                  aria-label="Schema options"
+                  title="Schema options"
+                >
+                  <i class="fi-sr-menu-dots-vertical" aria-hidden="true"></i>
+                </button>
+              </span>
+            </div>
+            <label class="schema-search" aria-label="Search schema">
+              <span aria-hidden="true"><i class="fi-sr-search"></i></span>
+              <input
+                id="schemaSearchInput"
+                type="search"
+                placeholder="Search schema..."
+                oninput="filterSchemaTree(this.value)"
+              />
+            </label>
+            <div class="schema-tabs" role="tablist" aria-label="Schema view">
+              <button
+                class="schema-tab active"
+                data-schema-view="type"
+                onclick="setSchemaViewTab(this)"
+                type="button"
+              >
+                By Type
+              </button>
+              <button
+                class="schema-tab"
+                data-schema-view="spatial"
+                onclick="setSchemaViewTab(this)"
+                type="button"
+              >
+                By Spatial Structure
+              </button>
+            </div>
             <div class="panel-section-body" id="schemaTree">
               <div class="panel-placeholder">
-                Load a model to view the IFC structure
+                Load a model to view the IFC structure.
               </div>
+            </div>
+            <div class="schema-panel-footer">
+              <span>Total entities</span>
+              <span id="schemaTotalCount" class="count-badge">0</span>
             </div>
           </div>
           <div
@@ -1241,7 +1545,34 @@
 
         <!-- CENTER -->
         <div class="ui-center" id="uiCenter">
+          <div class="viewport-model-card" aria-hidden="true">
+            <div class="viewport-model-icon">&#9635;</div>
+            <div class="viewport-model-main">
+              <strong id="viewport-model-name">No model loaded</strong>
+              <span>
+                IFC
+                <em id="viewport-model-status">Ready</em>
+              </span>
+            </div>
+            <div class="viewport-model-stats">
+              <span
+                >Entities <strong id="viewport-entity-count">0</strong></span
+              >
+              <span>Types <strong id="viewport-type-count">0</strong></span>
+              <span>Size <strong id="viewport-file-size">--</strong></span>
+            </div>
+          </div>
           <div id="view-cube-wrap">
+            <button
+              class="vc-home-btn"
+              onclick="vcSnap(-0.7854, 1.0472)"
+              aria-label="Home view"
+              title="Home view"
+            >
+              <span class="btn-icon" aria-hidden="true">
+                <i class="fi-sr-home"></i>
+              </span>
+            </button>
             <div class="vc-viewport">
               <div id="view-cube">
                 <div class="vc-face vc-top" onclick="vcSnap(0, 0.05)">TOP</div>
@@ -1262,17 +1593,40 @@
                 </div>
               </div>
             </div>
-            <div class="vc-btns">
-              <button class="vc-btn" onclick="vcSnap(-0.7854, 1.0472)">
-                <span class="btn-icon" aria-hidden="true">&#8962;</span>Home
-              </button>
-              <button class="vc-btn" onclick="vcSnap(0, 0.05)">
-                <span class="btn-icon" aria-hidden="true">&#8857;</span>Top
-              </button>
-            </div>
             <div class="vc-hint">
               Drag&#160;&#183;&#160;Mid-pan&#160;&#183;&#160;Scroll&#160;zoom
             </div>
+          </div>
+          <div
+            class="viewport-tool-stack"
+            aria-label="Viewport navigation tools"
+          >
+            <button
+              id="panToolBtn"
+              onclick="togglePanMode()"
+              aria-label="Pan"
+            >
+              <i class="fi-sr-hand-back-fist" aria-hidden="true"></i>
+            </button>
+            <button
+              class="active"
+              onclick="setViewerMode('3d')"
+              aria-label="Orbit"
+            >
+              <i class="fi-sr-model-cube-arrows" aria-hidden="true"></i>
+            </button>
+            <button
+              onclick="zoomToSelectionOrModel()"
+              aria-label="Zoom to selection or model"
+            >
+              <i class="fi-sr-search" aria-hidden="true"></i>
+            </button>
+            <button onclick="zoomToSelectionOrModel()" aria-label="Fit view">
+              <i class="fi-sr-expand-arrows" aria-hidden="true"></i>
+            </button>
+            <button onclick="toggleLeftPanel()" aria-label="Layers">
+              <i class="fi-sr-layers" aria-hidden="true"></i>
+            </button>
           </div>
         </div>
 
@@ -1331,6 +1685,28 @@
         </div>
       </div>
       <!-- end workspace -->
+
+      <div class="ui-statusbar">
+        <span class="statusbar-item statusbar-ready">
+          <i aria-hidden="true"></i><span id="statusbar-state">Ready</span>
+        </span>
+        <span class="statusbar-item">Units: <strong>m</strong></span>
+        <span class="statusbar-item statusbar-coordinates">
+          Coordinates:
+          <strong class="axis-x-label">X:</strong> <span>0.000</span>
+          <strong class="axis-y-label">Y:</strong> <span>0.000</span>
+          <strong class="axis-z-label">Z:</strong> <span>0.000</span>
+        </span>
+        <span class="statusbar-item"
+          >Selection: <strong id="statusbar-selection">None</strong></span
+        >
+        <span class="statusbar-item"
+          >View: <strong id="statusbar-view-mode">3D Orbit</strong></span
+        >
+        <span class="statusbar-item statusbar-fps"
+          >FPS: <strong>60</strong></span
+        >
+      </div>
 
       <!-- compat shim: cursor_click.js uses #psetInfo for panel-open class;
            ifcMemo* elements are needed by cursor_click.js + memo.js -->
@@ -1464,15 +1840,493 @@
       const loadStatusEl = document.getElementById("load-status");
       const modelFilenameEl = document.getElementById("model-filename");
       const fileInputEl = document.getElementById("file-input");
+      const statusbarStateEl = document.getElementById("statusbar-state");
+      const statusbarViewModeEl = document.getElementById(
+        "statusbar-view-mode",
+      );
+      const statusbarSelectionEl = document.getElementById(
+        "statusbar-selection",
+      );
+      const viewportModelNameEl = document.getElementById(
+        "viewport-model-name",
+      );
+      const viewportModelStatusEl = document.getElementById(
+        "viewport-model-status",
+      );
+      const viewportFileSizeEl = document.getElementById("viewport-file-size");
+      const viewportEntityCountEl = document.getElementById(
+        "viewport-entity-count",
+      );
+      const viewportTypeCountEl = document.getElementById(
+        "viewport-type-count",
+      );
+      const schemaTotalCountEl = document.getElementById("schemaTotalCount");
 
       function setLoadStatus(msg, type) {
         loadStatusEl.textContent = msg;
         loadStatusEl.className = "load-status-" + (type || "info");
+        if (statusbarStateEl) {
+          statusbarStateEl.textContent =
+            type === "error" ? "Issue" : type === "ok" ? "Ready" : "Working";
+        }
+        if (viewportModelStatusEl) {
+          viewportModelStatusEl.textContent =
+            type === "ok" ? "Loaded" : type === "error" ? "Check" : "Ready";
+        }
       }
 
       function setModelFilename(name) {
         modelFilenameEl.textContent = name;
+        if (viewportModelNameEl) viewportModelNameEl.textContent = name;
       }
+
+      function formatFileSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) return "--";
+        const units = ["B", "KB", "MB", "GB"];
+        let value = bytes;
+        let unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+          value /= 1024;
+          unitIndex += 1;
+        }
+        const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+        return `${value.toFixed(digits)} ${units[unitIndex]}`;
+      }
+
+      function setViewportFileSize(bytes) {
+        if (viewportFileSizeEl)
+          viewportFileSizeEl.textContent = formatFileSize(bytes);
+      }
+
+      window.showUiToast = function (message) {
+        let toast = document.getElementById("uiToast");
+        if (!toast) {
+          toast = document.createElement("div");
+          toast.id = "uiToast";
+          toast.className = "ui-toast";
+          document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(window.__uiToastTimer);
+        window.__uiToastTimer = setTimeout(() => {
+          toast.classList.remove("show");
+        }, 1800);
+      };
+
+      window.shareViewerLink = async function () {
+        const shareData = {
+          title: document.title,
+          text: "IFCExplorer BIM Viewer",
+          url: window.location.href,
+        };
+        try {
+          if (navigator.share) {
+            await navigator.share(shareData);
+            return;
+          }
+          await navigator.clipboard?.writeText(window.location.href);
+          showUiToast("Viewer link copied.");
+        } catch (_) {
+          showUiToast("Share was cancelled.");
+        }
+      };
+
+      window.setSchemaViewTab = function (button) {
+        window.activeSchemaView = button?.dataset?.schemaView || "type";
+        document
+          .querySelectorAll(".schema-tab")
+          .forEach((tab) => tab.classList.toggle("active", tab === button));
+        if (window.ifcSpatialStructure && window.refreshSchemaTree) {
+          window.refreshSchemaTree();
+        }
+      };
+
+      window.filterSchemaTree = function (query) {
+        const tree = document.getElementById("schemaTree");
+        if (!tree) return;
+        const normalized = String(query || "")
+          .trim()
+          .toLowerCase();
+        const nodes = Array.from(tree.querySelectorAll(".tree-node"));
+        if (!normalized) {
+          nodes.forEach((node) => (node.hidden = false));
+          return;
+        }
+        for (let i = nodes.length - 1; i >= 0; i -= 1) {
+          const node = nodes[i];
+          const header = node.querySelector(":scope > .tree-header");
+          const ownMatch = (header?.textContent || "")
+            .toLowerCase()
+            .includes(normalized);
+          const childMatch = Array.from(
+            node.querySelectorAll(":scope > .tree-children .tree-node"),
+          ).some((child) => !child.hidden);
+          node.hidden = !(ownMatch || childMatch);
+        }
+      };
+
+      function updateSchemaTotalCount() {
+        const tree = document.getElementById("schemaTree");
+        const entityCount =
+          tree?.querySelectorAll(
+            '.tree-node[data-express-id]:not([data-express-id=""])',
+          ).length || 0;
+        const typeCount =
+          tree?.querySelectorAll(".tree-type-group").length || 0;
+        if (schemaTotalCountEl)
+          schemaTotalCountEl.textContent = String(entityCount);
+        if (viewportEntityCountEl)
+          viewportEntityCountEl.textContent = String(entityCount);
+        if (viewportTypeCountEl)
+          viewportTypeCountEl.textContent = String(typeCount);
+      }
+
+      function escapeUiText(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function downloadBlob(filename, content, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function getViewerReportData() {
+        const tree = document.getElementById("schemaTree");
+        const typeRows = Array.from(
+          tree?.querySelectorAll(".tree-type-group > .tree-header") || [],
+        )
+          .slice(0, 80)
+          .map((row) => ({
+            type:
+              row.querySelector(".tree-type-label, .tree-label")?.textContent?.trim() ||
+              "Unknown",
+            count:
+              row.querySelector(".tree-type-count, .tree-count")?.textContent?.trim() ||
+              "",
+          }));
+        return {
+          generatedAt: new Date().toISOString(),
+          model: modelFilenameEl?.textContent?.trim() || "No model loaded",
+          status: loadStatusEl?.textContent?.trim() || "",
+          entities: Number(schemaTotalCountEl?.textContent || 0),
+          typeGroups: Number(viewportTypeCountEl?.textContent || 0),
+          fileSize: viewportFileSizeEl?.textContent?.trim() || "--",
+          floors: (window.storeyList || []).map((storey) => ({
+            name: storey.name,
+            elevation: storey.elevation,
+          })),
+          selectedExpressID: window.selectedIfcElement?.expressID ?? null,
+          visibleSchemaRows:
+            tree?.querySelectorAll(".tree-node:not([hidden])").length || 0,
+          hiddenSchemaItems:
+            (window._schemaHiddenIds?.size || 0) +
+            (window._schemaHiddenTypes?.size || 0),
+          typeRows,
+        };
+      }
+
+      function reportFilename(ext) {
+        const raw = modelFilenameEl?.textContent?.trim() || "ifc-viewer";
+        const safe = raw.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "-");
+        return `${safe || "ifc-viewer"}-report.${ext}`;
+      }
+
+      window.exportCurrentModelReport = function (format) {
+        const report = getViewerReportData();
+        if (report.model === "No model loaded") {
+          showUiToast("Load a model before exporting a report.");
+          return;
+        }
+        if (format === "csv") {
+          const rows = [
+            ["Metric", "Value"],
+            ["Model", report.model],
+            ["Status", report.status],
+            ["Entities", report.entities],
+            ["Type groups", report.typeGroups],
+            ["Floors", report.floors.length],
+            ["Selected Express ID", report.selectedExpressID ?? ""],
+          ];
+          const csv = rows
+            .map((row) =>
+              row
+                .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+                .join(","),
+            )
+            .join("\n");
+          downloadBlob(reportFilename("csv"), csv, "text/csv;charset=utf-8");
+        } else {
+          downloadBlob(
+            reportFilename("json"),
+            JSON.stringify(report, null, 2),
+            "application/json;charset=utf-8",
+          );
+        }
+        showUiToast("Report exported.");
+      };
+
+      function openUiDialog(title, bodyHtml, actionsHtml) {
+        let dialog = document.getElementById("uiDialog");
+        if (!dialog) {
+          dialog = document.createElement("div");
+          dialog.id = "uiDialog";
+          dialog.className = "ui-dialog modal";
+          document.body.appendChild(dialog);
+        }
+        dialog.innerHTML = `
+          <div class="ui-dialog-card" role="dialog" aria-modal="true" aria-label="${escapeUiText(title)}">
+            <div class="ui-dialog-head">
+              <strong>${escapeUiText(title)}</strong>
+              <button class="ui-dialog-close" onclick="closeUiDialog()" aria-label="Close">&#10005;</button>
+            </div>
+            <div class="ui-dialog-body">${bodyHtml}</div>
+            ${
+              actionsHtml
+                ? `<div class="ui-dialog-actions">${actionsHtml}</div>`
+                : ""
+            }
+          </div>`;
+        dialog.classList.add("open");
+      }
+
+      window.closeUiDialog = function () {
+        document.getElementById("uiDialog")?.classList.remove("open");
+      };
+
+      window.openViewerReport = function () {
+        const report = getViewerReportData();
+        const floorRows = report.floors.length
+          ? report.floors
+              .slice(0, 6)
+              .map(
+                (floor) =>
+                  `<li>${escapeUiText(floor.name)} <span>${formatStoreyElevation(
+                    floor.elevation,
+                  )}</span></li>`,
+              )
+              .join("")
+          : "<li>No floors detected</li>";
+        const typeRows = report.typeRows.length
+          ? report.typeRows
+              .slice(0, 8)
+              .map(
+                (type) =>
+                  `<li>${escapeUiText(type.type)} <span>${escapeUiText(
+                    type.count,
+                  )}</span></li>`,
+              )
+              .join("")
+          : "<li>No type groups available</li>";
+        openUiDialog(
+          "Viewer Report",
+          `
+            <div class="ui-report-grid">
+              <span><b>${report.entities}</b>Entities</span>
+              <span><b>${report.typeGroups}</b>Types</span>
+              <span><b>${report.floors.length}</b>Floors</span>
+              <span><b>${escapeUiText(report.fileSize)}</b>Size</span>
+            </div>
+            <div class="ui-dialog-section">
+              <h3>Model</h3>
+              <p>${escapeUiText(report.model)}</p>
+            </div>
+            <div class="ui-dialog-columns">
+              <div><h3>Levels</h3><ul>${floorRows}</ul></div>
+              <div><h3>Type Groups</h3><ul>${typeRows}</ul></div>
+            </div>
+          `,
+          `
+            <button class="ui-dialog-btn" onclick="exportCurrentModelReport('json')">Export JSON</button>
+            <button class="ui-dialog-btn" onclick="exportCurrentModelReport('csv')">Export CSV</button>
+          `,
+        );
+      };
+
+      window.openHelpPanel = function () {
+        openUiDialog(
+          "Viewer Help",
+          `
+            <div class="ui-help-list">
+              <p><b>Orbit</b><span>Left drag rotates the model view.</span></p>
+              <p><b>Pan</b><span>Middle drag moves the camera target.</span></p>
+              <p><b>Zoom</b><span>Mouse wheel moves closer or farther.</span></p>
+              <p><b>Select</b><span>Click an IFC element to inspect properties.</span></p>
+              <p><b>Measure</b><span>Use the ruler, then click two points in the viewer.</span></p>
+            </div>
+          `,
+          "",
+        );
+      };
+
+      function setSceneHelperVisible(type, visible) {
+        const sceneObj = document.querySelector("#a_scene")?.object3D;
+        if (!sceneObj) return;
+        sceneObj.traverse((object) => {
+          if (object.type === type) object.visible = visible;
+        });
+      }
+
+      window.openViewerSettings = function () {
+        const statusHidden = document
+          .getElementById("overlay")
+          ?.classList.contains("hide-statusbar");
+        openUiDialog(
+          "Viewer Settings",
+          `
+            <div class="ui-settings-list">
+              <label><input type="checkbox" checked onchange="setSceneHelperVisible('GridHelper', this.checked)" /> Show grid</label>
+              <label><input type="checkbox" checked onchange="setSceneHelperVisible('AxesHelper', this.checked)" /> Show axes</label>
+              <label><input type="checkbox" ${
+                statusHidden ? "" : "checked"
+              } onchange="toggleStatusbarVisible(this.checked)" /> Show status bar</label>
+              <label><input type="checkbox" ${
+                document.getElementById("uiRibbon")?.classList.contains("ribbon-collapsed")
+                  ? "checked"
+                  : ""
+              } onchange="setRibbonCollapsed(this.checked)" /> Collapse ribbon</label>
+              <a class="ui-settings-link" href="https://isaddiq.github.io/" target="_blank" rel="noopener noreferrer">
+                <span><i class="fi-sr-user-pen" aria-hidden="true"></i> About me</span>
+                <b>Visit site</b>
+              </a>
+            </div>
+          `,
+          "",
+        );
+      };
+
+      window.setSceneHelperVisible = setSceneHelperVisible;
+
+      window.toggleStatusbarVisible = function (visible) {
+        document.getElementById("overlay")?.classList.toggle("hide-statusbar", !visible);
+        syncViewerViewport();
+      };
+
+      window.openAboutPanel = function () {
+        const report = getViewerReportData();
+        openUiDialog(
+          "IFCExplorer",
+          `
+            <div class="ui-dialog-section">
+              <p>Browser-based IFC model viewer for schema review, model navigation, element selection, and WebXR viewing.</p>
+              <p><b>Active model:</b> ${escapeUiText(report.model)}</p>
+              <p><b>Viewer status:</b> ${escapeUiText(report.status)}</p>
+            </div>
+          `,
+          `<button class="ui-dialog-btn" onclick="shareViewerLink()">Share Link</button>`,
+        );
+      };
+
+      function positionPopover(popover, anchor) {
+        const rect = anchor.getBoundingClientRect();
+        popover.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 24)}px`;
+        popover.style.left = `${Math.min(
+          Math.max(8, rect.right - popover.offsetWidth),
+          window.innerWidth - popover.offsetWidth - 8,
+        )}px`;
+      }
+
+      function closeUiPopovers(exceptId) {
+        document.querySelectorAll(".ui-popover.open").forEach((popover) => {
+          if (popover.id !== exceptId) popover.classList.remove("open");
+        });
+      }
+
+      window.toggleMoreActionsMenu = function (anchor) {
+        let popover = document.getElementById("moreActionsMenu");
+        if (!popover) {
+          popover = document.createElement("div");
+          popover.id = "moreActionsMenu";
+          popover.className = "ui-popover";
+          popover.innerHTML = `
+            <button onclick="zoomToSelectionOrModel()">Fit view</button>
+            <button onclick="openViewerReport()">Open report</button>
+            <button onclick="exportCurrentModelReport('json')">Export JSON</button>
+            <button onclick="shareViewerLink()">Copy/share link</button>
+            <button onclick="openViewerSettings()">Settings</button>
+          `;
+          document.body.appendChild(popover);
+        }
+        const willOpen = !popover.classList.contains("open");
+        closeUiPopovers("moreActionsMenu");
+        popover.classList.toggle("open", willOpen);
+        if (willOpen) positionPopover(popover, anchor);
+      };
+
+      window.focusSchemaSearch = function () {
+        const input = document.getElementById("schemaSearchInput");
+        if (!input) return;
+        input.focus();
+        input.select();
+      };
+
+      window.toggleSchemaOptionsMenu = function (anchor) {
+        let popover = document.getElementById("schemaOptionsMenu");
+        if (!popover) {
+          popover = document.createElement("div");
+          popover.id = "schemaOptionsMenu";
+          popover.className = "ui-popover";
+          popover.innerHTML = `
+            <button onclick="focusSchemaSearch()">Focus filter</button>
+            <button onclick="setSchemaExpanded(true)">Expand all</button>
+            <button onclick="setSchemaExpanded(false)">Collapse all</button>
+            <button onclick="clearSchemaVisibilityOverrides()">Show all hidden</button>
+          `;
+          document.body.appendChild(popover);
+        }
+        const willOpen = !popover.classList.contains("open");
+        closeUiPopovers("schemaOptionsMenu");
+        popover.classList.toggle("open", willOpen);
+        if (willOpen) positionPopover(popover, anchor);
+      };
+
+      window.setSchemaExpanded = function (expanded) {
+        document.querySelectorAll("#schemaTree .tree-children").forEach((el) => {
+          el.classList.toggle("collapsed", !expanded);
+        });
+        document.querySelectorAll("#schemaTree .tree-toggle").forEach((el) => {
+          if (!el.classList.contains("leaf")) {
+            el.classList.toggle("expanded", expanded);
+          }
+        });
+      };
+
+      window.clearSchemaVisibilityOverrides = function () {
+        window._schemaHiddenIds?.clear();
+        window._schemaHiddenTypes?.clear();
+        document
+          .querySelectorAll("#schemaTree .tree-eye.hidden-eye")
+          .forEach((btn) => btn.classList.remove("hidden-eye"));
+        type_subsets.forEach((subset) => {
+          subset.visible = true;
+        });
+        showUiToast("Schema visibility reset.");
+      };
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest(".ui-popover, .ui-action-icon, .panel-tool-btn")) {
+          closeUiPopovers();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeUiPopovers();
+          closeUiDialog();
+          if (window.measureMode) toggleMeasureMode(false);
+        }
+      });
 
       window.openIfcFilePicker = function () {
         fileInputEl.value = "";
@@ -1487,7 +2341,7 @@
 
         fileInputEl.value = "";
         clearModel();
-        loadIFC("assets/models/architectural.ifc", "architectural.ifc");
+        loadIFC("assets/ifc/Building-Structural.ifc", "Building-Structural.ifc");
       };
 
       // ── View Mode toggle ──────────────────────────────────────────────
@@ -1580,6 +2434,9 @@
         if (!isOrbit && window.updateWalkerFloorStatus) {
           window.updateWalkerFloorStatus();
         }
+        if (statusbarViewModeEl) {
+          statusbarViewModeEl.textContent = isOrbit ? "3D Orbit" : "Walk";
+        }
       };
 
       window.vcSnap = function (theta, phi) {
@@ -1590,8 +2447,115 @@
       window.zoomToSelectionOrModel = function () {
         if (window.setViewerMode) window.setViewerMode("3d");
         const oc = document.querySelector("a-scene").components["viewer-orbit"];
-        if (oc?.zoomToSelectionOrModel) oc.zoomToSelectionOrModel();
+        if (oc?.zoomToSelectionOrModel) return oc.zoomToSelectionOrModel();
+        return false;
       };
+
+      window.measureMode = false;
+      window.measurePoints = [];
+      window.forcePanMode = false;
+
+      window.togglePanMode = function (force) {
+        const next = typeof force === "boolean" ? force : !window.forcePanMode;
+        window.forcePanMode = next;
+        if (next) {
+          if (window.measureMode) toggleMeasureMode(false);
+          if (window.setViewerMode) window.setViewerMode("3d");
+        }
+        document.getElementById("panToolBtn")?.classList.toggle("active", next);
+        showUiToast(next ? "Pan mode enabled." : "Pan mode disabled.");
+      };
+
+      function ensureMeasureReadout() {
+        let readout = document.getElementById("measureReadout");
+        if (!readout) {
+          readout = document.createElement("div");
+          readout.id = "measureReadout";
+          readout.className = "measure-readout";
+          document.getElementById("uiCenter")?.appendChild(readout);
+        }
+        return readout;
+      }
+
+      function formatMeasureDistance(distance) {
+        if (!Number.isFinite(distance)) return "--";
+        if (distance >= 1000) return `${(distance / 1000).toFixed(2)} km`;
+        if (distance >= 10) return `${distance.toFixed(2)} m`;
+        return `${distance.toFixed(3)} m`;
+      }
+
+      function getMeasurePointFromEvent(event) {
+        const ndc = window.getViewerPointerNdc?.(event);
+        const sceneEl = document.querySelector("#a_scene");
+        const camera =
+          sceneEl?.camera ||
+          document.querySelector("#camera")?.getObject3D("camera");
+        if (!ndc || !camera || typeof THREE === "undefined") return null;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(ndc, camera);
+        const world = document.querySelector("#a_world")?.object3D;
+        if (world) {
+          const hit = raycaster
+            .intersectObject(world, true)
+            .find((item) => item.object?.visible !== false);
+          if (hit?.point) return hit.point.clone();
+        }
+
+        const point = new THREE.Vector3();
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        return raycaster.ray.intersectPlane(plane, point) ? point : null;
+      }
+
+      window.toggleMeasureMode = function (force) {
+        const next = typeof force === "boolean" ? force : !window.measureMode;
+        window.measureMode = next;
+        window.measurePoints = [];
+        if (next) {
+          window.forcePanMode = false;
+          document.getElementById("panToolBtn")?.classList.remove("active");
+        }
+        document
+          .getElementById("measureToolBtn")
+          ?.classList.toggle("active", next);
+        document.getElementById("overlay")?.classList.toggle("measure-active", next);
+        const readout = ensureMeasureReadout();
+        readout.classList.toggle("show", next);
+        readout.textContent = next
+          ? "Measure: pick first point"
+          : "Measure mode off";
+        if (!next) {
+          setTimeout(() => readout.classList.remove("show"), 700);
+        }
+      };
+
+      function handleMeasurePointerDown(event) {
+        if (!window.measureMode || !window.isViewerPointerEvent?.(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const point = getMeasurePointFromEvent(event);
+        if (!point) {
+          showUiToast("No measure point found.");
+          return;
+        }
+
+        window.measurePoints.push(point);
+        const readout = ensureMeasureReadout();
+        if (window.measurePoints.length === 1) {
+          readout.textContent = "Measure: pick second point";
+          readout.classList.add("show");
+          return;
+        }
+
+        const [start, end] = window.measurePoints;
+        readout.textContent = `Distance ${formatMeasureDistance(
+          start.distanceTo(end),
+        )}`;
+        readout.classList.add("show");
+        window.measurePoints = [];
+      }
+
+      document.addEventListener("pointerdown", handleMeasurePointerDown, true);
 
       // ── Floor teleport ────────────────────────────────────────────────
       window.setFloor = function () {
@@ -2068,6 +3032,8 @@
         if (schemaTree)
           schemaTree.innerHTML =
             '<div class="panel-placeholder">Load a model to view the IFC structure</div>';
+        updateSchemaTotalCount();
+        setViewportFileSize(0);
         if (window.scene) {
           document.querySelector("#a_world").object3D.position.set(0, 0, 0);
         }
@@ -2079,6 +3045,7 @@
       fileInputEl.addEventListener("change", async (event) => {
         const file = event.target.files[0];
         if (!file) return;
+        setViewportFileSize(file.size);
 
         setLoadStatus("Checking schema…", "info");
         const schema = await checkIfcSchema(file);
@@ -2107,6 +3074,33 @@
         btn.classList.add("active");
         const panel = document.getElementById("ribbon-" + name);
         if (panel) panel.classList.add("active");
+      };
+
+      window.setRibbonCollapsed = function (collapsed) {
+        const ribbon = document.getElementById("uiRibbon");
+        const btn = document.getElementById("ribbon-collapse-btn");
+        if (!ribbon || !btn) return;
+
+        ribbon.classList.toggle("ribbon-collapsed", collapsed);
+        btn.setAttribute("aria-expanded", String(!collapsed));
+        btn.setAttribute(
+          "aria-label",
+          collapsed ? "Expand ribbon" : "Collapse ribbon",
+        );
+        btn.title = collapsed ? "Expand ribbon" : "Collapse ribbon";
+
+        const icon = btn.querySelector(".ribbon-collapse-icon");
+        if (icon) {
+          icon.innerHTML = collapsed
+            ? '<i class="fi-sr-angle-small-down" aria-hidden="true"></i>'
+            : '<i class="fi-sr-angle-small-up" aria-hidden="true"></i>';
+        }
+        syncViewerViewport();
+      };
+
+      window.toggleRibbonCollapse = function () {
+        const ribbon = document.getElementById("uiRibbon");
+        setRibbonCollapsed(!ribbon?.classList.contains("ribbon-collapsed"));
       };
 
       // ── Left panel toggle ─────────────────────────────────────────────
@@ -2293,27 +3287,31 @@
         );
       }
 
-      function getSchemaNodeMeta(node) {
-        const parts = [];
-        if (node?.type) parts.push(node.type);
-        if (node?.expressID != null) parts.push(`#${node.expressID}`);
-        return parts.join(" ");
+      function isSchemaTechnicalLabel(node, label) {
+        if (node?.Name?.value || node?.LongName?.value || node?.name) {
+          return false;
+        }
+        return /^#?\d+$/.test(String(label ?? "")) || /^IFC[A-Z0-9_]*$/.test(String(label ?? ""));
+      }
+
+      function flaticonIcon(name) {
+        return `<i class="fi-sr-${name}" aria-hidden="true"></i>`;
       }
 
       function getSchemaNodeIcon(type, hasChildren) {
         switch (type) {
           case "IFCPROJECT":
-            return "&#128193;";
+            return flaticonIcon("diagram-project");
           case "IFCSITE":
-            return "&#127959;";
+            return flaticonIcon("site");
           case "IFCBUILDING":
-            return "&#127970;";
+            return flaticonIcon("building");
           case "IFCBUILDINGSTOREY":
-            return "&#9643;";
+            return flaticonIcon("floor");
           case "IFCSPACE":
-            return "&#11036;";
+            return flaticonIcon("model-cube-space");
           default:
-            return hasChildren ? "&#128449;" : "&#9642;";
+            return hasChildren ? flaticonIcon("folder") : flaticonIcon("box");
         }
       }
 
@@ -2330,26 +3328,26 @@
       ]);
 
       function _typeGroupIcon(type) {
-        if (type.includes("WALL")) return "&#9727;";
-        if (type.includes("COLUMN")) return "&#9650;";
-        if (type.includes("BEAM")) return "&#8596;";
+        if (type.includes("WALL")) return flaticonIcon("building");
+        if (type.includes("COLUMN")) return flaticonIcon("objects-column");
+        if (type.includes("BEAM")) return flaticonIcon("ruler-horizontal");
         if (type.includes("SLAB") || type.includes("COVERING"))
-          return "&#9644;";
-        if (type.includes("DOOR")) return "&#128682;";
-        if (type.includes("WINDOW")) return "&#11036;";
-        if (type.includes("STAIR")) return "&#8616;";
-        if (type.includes("ROOF")) return "&#127968;";
+          return flaticonIcon("floor-layer");
+        if (type.includes("DOOR")) return flaticonIcon("door-open");
+        if (type.includes("WINDOW")) return flaticonIcon("window-alt");
+        if (type.includes("STAIR")) return flaticonIcon("stairs");
+        if (type.includes("ROOF")) return flaticonIcon("roof");
         if (
           type.includes("PIPE") ||
           type.includes("DUCT") ||
           type.includes("FLOW")
         )
-          return "&#9000;";
-        if (type.includes("FURNISH")) return "&#127968;";
-        if (type.includes("OPENING")) return "&#9645;";
-        if (type.includes("RAMP")) return "&#8599;";
-        if (type.includes("RAIL")) return "&#9135;";
-        return "&#128449;";
+          return flaticonIcon("workflow");
+        if (type.includes("FURNISH")) return flaticonIcon("chair");
+        if (type.includes("OPENING")) return flaticonIcon("box-open");
+        if (type.includes("RAMP")) return flaticonIcon("truck-ramp");
+        if (type.includes("RAIL")) return flaticonIcon("layers");
+        return flaticonIcon("box");
       }
 
       function _treeNodeLevelClass(type) {
@@ -2375,8 +3373,9 @@
           ? node.children.filter(Boolean)
           : [];
         const hasChildren = children.length > 0;
-        const label = escapeSchemaText(getSchemaNodeLabel(node));
-        const meta = escapeSchemaText(getSchemaNodeMeta(node));
+        const rawLabel = getSchemaNodeLabel(node);
+        const label = escapeSchemaText(rawLabel);
+        const labelClass = `tree-label${isSchemaTechnicalLabel(node, rawLabel) ? " ifc-technical-value" : ""}`;
         const icon = getSchemaNodeIcon(node.type, hasChildren);
         const levelClass = _treeNodeLevelClass(node.type);
 
@@ -2409,13 +3408,13 @@
                   .map((c) => renderSchemaNode(c))
                   .join("");
                 inner += `
-                  <div class="tree-node tree-type-group" data-express-id="">
+                  <div class="tree-node tree-type-group" data-express-id="" data-type-name="${escapeSchemaText(typeName)}">
                     <div class="tree-header tree-type-header" onclick="handleSchemaNodeClick(event, this)">
                       <span class="tree-toggle expanded">&#9654;</span>
                       <span class="tree-icon tree-icon--type">${grpIcon}</span>
                       <span class="tree-label tree-type-label">${escapeSchemaText(typeName)}</span>
                       <span class="tree-count tree-type-count">${items.length}</span>
-                      <button class="tree-eye tree-eye--type" onclick="toggleSchemaEye(event,this,'','${escapeSchemaText(typeName)}')" title="Hide">&#128065;</button>
+                      <button class="tree-eye tree-eye--type" onclick="toggleSchemaEye(event,this,'',this.closest('.tree-type-group')?.dataset.typeName || '')" title="Hide"><i class="fi-sr-eye" aria-hidden="true"></i></button>
                     </div>
                     <div class="tree-children">${itemsHtml}</div>
                   </div>`;
@@ -2438,27 +3437,62 @@
           <div class="tree-node ${levelClass}" data-express-id="${eid}">
             <div class="tree-header" onclick="handleSchemaNodeClick(event, this)">
               <span class="tree-toggle leaf"></span>
-              <button class="tree-eye tree-eye--left" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide">&#128065;</button>
-              <span class="tree-label">${label}</span>
-              <span class="tree-count">${meta}</span>
+              <button class="tree-eye tree-eye--left" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide"><i class="fi-sr-eye" aria-hidden="true"></i></button>
+              <span class="${labelClass}">${label}</span>
             </div>
             ${childHtml}
           </div>`;
         }
         const eyeBtn = eid
-          ? `<button class="tree-eye" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide">&#128065;</button>`
+          ? `<button class="tree-eye" onclick="toggleSchemaEye(event,this,'${eid}','')" title="Hide"><i class="fi-sr-eye" aria-hidden="true"></i></button>`
           : "";
         return `
           <div class="tree-node ${levelClass}" data-express-id="${eid}">
             <div class="tree-header" onclick="handleSchemaNodeClick(event, this)">
               <span class="tree-toggle ${hasChildren ? "expanded" : "leaf"}" title="${hasChildren ? "Expand or collapse" : ""}">&#9654;</span>
               <span class="tree-icon">${icon}</span>
-              <span class="tree-label">${label}</span>
-              <span class="tree-count">${meta}</span>
+              <span class="${labelClass}">${label}</span>
               ${eyeBtn}
             </div>
             ${childHtml}
           </div>`;
+      }
+
+      function collectSchemaTypeRows(node, groups) {
+        if (!node) return;
+        const type = node.type || "UNKNOWN";
+        if (node.expressID != null && !_SPATIAL_TYPES.has(type)) {
+          if (!groups.has(type)) groups.set(type, []);
+          groups.get(type).push(node);
+        }
+        if (node.children) {
+          for (const child of node.children) collectSchemaTypeRows(child, groups);
+        }
+      }
+
+      function renderSchemaTypeView(root) {
+        const groups = new Map();
+        collectSchemaTypeRows(root, groups);
+        const rows = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        if (!rows.length) {
+          return '<div class="panel-placeholder">No IFC elements found in the schema.</div>';
+        }
+        return rows
+          .map(([typeName, items]) => {
+            const itemsHtml = items.map((item) => renderSchemaNode(item)).join("");
+            return `
+              <div class="tree-node tree-type-group tree-type-group--root" data-express-id="" data-type-name="${escapeSchemaText(typeName)}">
+                <div class="tree-header tree-type-header" onclick="handleSchemaNodeClick(event, this)">
+                  <span class="tree-toggle expanded">&#9654;</span>
+                  <span class="tree-icon tree-icon--type">${_typeGroupIcon(typeName)}</span>
+                  <span class="tree-label tree-type-label">${escapeSchemaText(typeName)}</span>
+                  <span class="tree-count tree-type-count">${items.length}</span>
+                  <button class="tree-eye tree-eye--type" onclick="toggleSchemaEye(event,this,'',this.closest('.tree-type-group')?.dataset.typeName || '')" title="Hide"><i class="fi-sr-eye" aria-hidden="true"></i></button>
+                </div>
+                <div class="tree-children">${itemsHtml}</div>
+              </div>`;
+          })
+          .join("");
       }
 
       window.refreshSchemaTree = async function () {
@@ -2470,6 +3504,7 @@
           if (!window.ifcSpatialStructure && modelID == null) {
             tree.innerHTML =
               '<div class="panel-placeholder">Load a model to view the IFC structure</div>';
+            updateSchemaTotalCount();
             return;
           }
           const ifcProject =
@@ -2481,13 +3516,24 @@
           if (!ifcProject) {
             tree.innerHTML =
               '<div class="panel-placeholder">No IFC structure found</div>';
+            updateSchemaTotalCount();
             return;
           }
-          tree.innerHTML = renderSchemaNode(ifcProject);
+          const schemaView = window.activeSchemaView || "type";
+          tree.dataset.schemaView = schemaView;
+          tree.innerHTML =
+            schemaView === "spatial"
+              ? renderSchemaNode(ifcProject)
+              : renderSchemaTypeView(ifcProject);
+          updateSchemaTotalCount();
+          filterSchemaTree(
+            document.getElementById("schemaSearchInput")?.value || "",
+          );
         } catch (error) {
           console.warn("refreshSchemaTree error:", error);
           tree.innerHTML =
             '<div class="panel-placeholder">Unable to read IFC structure</div>';
+          updateSchemaTotalCount();
         }
       };
 
@@ -2518,6 +3564,17 @@
           .querySelectorAll(".tree-header.selected")
           .forEach((item) => item.classList.remove("selected"));
         header.classList.add("selected");
+        if (statusbarSelectionEl) {
+          const label = header
+            .querySelector(".tree-label")
+            ?.textContent?.trim();
+          const selectionText = label || `#${expressID}`;
+          statusbarSelectionEl.textContent = selectionText;
+          statusbarSelectionEl.classList.toggle(
+            "ifc-technical-value",
+            /^#?\d+$/.test(selectionText) || /^IFC[A-Z0-9_]*$/.test(selectionText),
+          );
+        }
         if (window.selectIfcElementByExpressId) {
           const highlightIds = [
             expressID,
@@ -2628,19 +3685,6 @@
     </script>
 
     <!-- ── Visitor Counter Floating Button ── -->
-    <button
-      id="visitor-counter-btn"
-      class="vc-fab"
-      title="Visitor Statistics"
-      onclick="
-        document.getElementById('vc-popover').classList.toggle('vc-open')
-      "
-      aria-label="Show visitor statistics"
-    >
-      <span class="vc-fab-icon">&#127758;</span>
-      <span class="vc-fab-label">Visitors</span>
-    </button>
-
     <!-- ── Visitor Counter Popover ── -->
     <div
       id="vc-popover"

@@ -5,6 +5,31 @@ function __esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function __isIfcClassName(value) {
+  return /^IFC[A-Z0-9_]*$/.test(String(value ?? '').trim());
+}
+
+function __isCodeLikeIfcValue(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return false;
+  return (
+    /^#?\d+$/.test(text) ||
+    __isIfcClassName(text) ||
+    /^[A-Z][A-Z0-9_]{2,}$/.test(text) ||
+    /^[0-9A-Za-z_$-]{16,}$/.test(text)
+  );
+}
+
+function __isTechnicalIfcName(name) {
+  return /(^|\.)(GlobalId|GlobalID|GUID|expressID|Express ID|type|ObjectType|PredefinedType|Tag|OwnerHistory|ObjectPlacement|Representation|RepresentationIdentifier|RepresentationType|Relating|Related|Layer|Material)$/i.test(
+    String(name ?? ''),
+  );
+}
+
+function __ifcTechnicalClass(isTechnical, className) {
+  return isTechnical ? ` class="${className}"` : '';
+}
+
 // web-ifc 참조(값/타입)로 오는 항목을 실제 객체로 해제
 function __getLineSafe(p) {
   if (!p) return null;
@@ -38,12 +63,21 @@ function __extractValueAndUnit(propLine) {
 // 표 HTML 빌더
 function __buildTableHTML(title, rows) {
   if (!rows?.length) return '';
-  const trs = rows.map(r => `
+  const isRawIfcSection = /^(Entity Attributes|Type Attributes|Material:|Relation:)/.test(
+    String(title ?? ''),
+  );
+  const trs = rows.map(r => {
+    const technicalName = isRawIfcSection || __isTechnicalIfcName(r.name);
+    const technicalValue =
+      technicalName || __isCodeLikeIfcValue(r.value) || __isIfcClassName(r.value);
+    const technicalUnit = __isCodeLikeIfcValue(r.unit);
+    return `
     <tr>
-      <td>${__esc(r.name)}</td>
-      <td>${r.value == null || r.value === '' ? '<span class="empty-value">(empty)</span>' : __esc(r.value)}</td>
-      <td>${r.unit == null || r.unit === '' ? '<span class="empty-value">(empty)</span>' : __esc(r.unit)}</td>
-    </tr>`).join('');
+      <td${__ifcTechnicalClass(technicalName, 'ifc-technical-key')}>${__esc(r.name)}</td>
+      <td${__ifcTechnicalClass(technicalValue, 'ifc-technical-value')}>${r.value == null || r.value === '' ? '<span class="empty-value">(empty)</span>' : __esc(r.value)}</td>
+      <td${__ifcTechnicalClass(technicalUnit, 'ifc-technical-value')}>${r.unit == null || r.unit === '' ? '<span class="empty-value">(empty)</span>' : __esc(r.unit)}</td>
+    </tr>`;
+  }).join('');
 
   return `
     <h4 style="margin:8px 0 4px;">${__esc(title)}</h4>
@@ -548,6 +582,7 @@ function renderFullIfcProperties(context) {
 
     var currentMouseMove;
     var clicked_expId;
+    var __lastIfcClick = { time: 0, x: null, y: null };
     document.addEventListener('mousemove', (event) => {
       const ndc = window.getViewerPointerNdc?.(event);
       if (ndc) currentMouseMove = ndc;
@@ -576,11 +611,7 @@ function renderFullIfcProperties(context) {
         }
         else if (event.type == "touchend") {
           //console.log("touch ended")
-          const modelID = window.getActiveModelId?.();
-          if (modelID != null) {
-            ifcLoader.ifcManager.removeSubset(modelID, mat);
-          }
-          if (window.htmlPsetInfo) window.htmlPsetInfo.classList.remove('panel-open');
+          __clearIfcSelection();
           clearTimeout();
         }
       }
@@ -607,9 +638,70 @@ function renderFullIfcProperties(context) {
 
 
     //부모 계단 express Id 찾는 함수
-function __setTextById(id, value) {
+function __setTextById(id, value, isTechnical = false) {
   const el = document.getElementById(id);
-  if (el) el.textContent = value || '';
+  if (!el) return;
+  el.textContent = value || '';
+  el.classList.toggle('ifc-technical-value', isTechnical && Boolean(value));
+}
+
+function __clearIfcSelection(modelid) {
+  const activeModelID = modelid ?? window.getActiveModelId?.();
+  if (activeModelID != null) {
+    try {
+      ifcLoader.ifcManager.removeSubset(activeModelID, mat);
+    } catch (_) {}
+  }
+
+  window.selectedIfcElement = null;
+  clicked_expId = null;
+
+  document
+    .querySelectorAll('.tree-header.selected')
+    .forEach((node) => node.classList.remove('selected'));
+
+  const statusbarSelection = document.getElementById('statusbar-selection');
+  if (statusbarSelection) {
+    statusbarSelection.textContent = 'None';
+    statusbarSelection.classList.remove('ifc-technical-value');
+  }
+
+  ['prpValTypeInfo', 'prpValCategoryInfo', 'prpValHeightInfo', 'prpValTypeIdInfo']
+    .forEach((id) => __setTextById(id, ''));
+  __setTextById('ifcMemoTypeInfo', '');
+  __setTextById('ifcMemoLevelInfo', '');
+
+  const tables = document.getElementById('psetTables');
+  if (tables) {
+    tables.innerHTML =
+      '<div class="panel-placeholder" id="propPlaceholder">Click an element to inspect</div>';
+  }
+
+  if (typeof setSelectedMemo === 'function') setSelectedMemo(null);
+  if (window.htmlPsetInfo) window.htmlPsetInfo.classList.remove('panel-open');
+  document.getElementById('rightPanel')?.classList.remove('open');
+}
+
+window.clearIfcSelection = __clearIfcSelection;
+
+function __isDuplicateIfcClick(sourceEvent) {
+  const point =
+    sourceEvent?.changedTouches?.[0] ||
+    sourceEvent?.targetTouches?.[0] ||
+    sourceEvent;
+  const x = Number(point?.clientX);
+  const y = Number(point?.clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+
+  const now =
+    Number(sourceEvent?.timeStamp) ||
+    (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const isDuplicate =
+    now - __lastIfcClick.time < 120 &&
+    Math.abs(x - __lastIfcClick.x) <= 2 &&
+    Math.abs(y - __lastIfcClick.y) <= 2;
+  __lastIfcClick = { time: now, x, y };
+  return isDuplicate;
 }
 
 async function __safeIfcCall(label, fn, fallback) {
@@ -681,6 +773,11 @@ function __storeIfcSelectionBounds(modelid, expressID, subset, fallbackPoint) {
     bounds,
     point,
   };
+  const statusbarSelection = document.getElementById('statusbar-selection');
+  if (statusbarSelection) {
+    statusbarSelection.textContent = `#${Number(expressID)}`;
+    statusbarSelection.classList.add('ifc-technical-value');
+  }
 }
 
 function __syncSchemaSelection(expressID, scrollIntoView) {
@@ -765,11 +862,13 @@ async function __renderIfcSelection(modelid, expressID, options = {}) {
     itemProps?.type ||
     '';
 
-  __setTextById('prpValTypeInfo', `${type || 'IFC Element'} #${propertyID}`);
-  __setTextById('prpValCategoryInfo', name || globalId);
-  __setTextById('prpValHeightInfo', predefined === name ? globalId : predefined);
-  __setTextById('prpValTypeIdInfo', globalId);
-  __setTextById('ifcMemoTypeInfo', type);
+  const categorySummary = name || globalId;
+  const detailSummary = predefined === name ? globalId : predefined;
+  __setTextById('prpValTypeInfo', `${type || 'IFC Element'} #${propertyID}`, true);
+  __setTextById('prpValCategoryInfo', categorySummary, !name && Boolean(globalId));
+  __setTextById('prpValHeightInfo', detailSummary, __isCodeLikeIfcValue(detailSummary));
+  __setTextById('prpValTypeIdInfo', globalId, true);
+  __setTextById('ifcMemoTypeInfo', type, true);
   clicked_expId = Number(expressID);
   if (typeof setSelectedMemo === 'function') setSelectedMemo(Number(expressID));
 
@@ -826,6 +925,7 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
     // ifc 클릭시 info 보여주는 함수
     async function click_act(e, currentDownMove) {
       const sourceEvent = e?.detail?.mouseEvent || e;
+      if (__isDuplicateIfcClick(sourceEvent)) return;
       if (!currentDownMove && !e.target?.hasAttribute("laser-controls")) {
         currentDownMove =
           window.getViewerPointerNdc?.(sourceEvent) || currentMouseMove;
@@ -867,6 +967,15 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
         const geometry = intersects.object.geometry;
         const ifc = ifcLoader.ifcManager;
         const expid = ifc.getExpressId(geometry, index);
+        const selected = window.selectedIfcElement;
+        if (
+          selected &&
+          Number(selected.modelID) === Number(modelid) &&
+          Number(selected.expressID) === Number(expid)
+        ) {
+          __clearIfcSelection(modelid);
+          return;
+        }
         exIds = [expid];
         let prpsets = await ifc.getPropertySets(modelid, expid, false);
         let types = await ifc.getTypeProperties(modelid, expid, false); // 아래 type이랑 다름
@@ -1067,9 +1176,8 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
         });
       }    // end if(intersects)
       else {
-        // Clicked empty space – close property panel
-        window.selectedIfcElement = null;
-        if (window.htmlPsetInfo) window.htmlPsetInfo.classList.remove('panel-open');
+        // Clicked empty space - clear selection.
+        __clearIfcSelection(modelid);
       }
     }  // end click_act
 
