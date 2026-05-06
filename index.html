@@ -804,7 +804,6 @@
     <a-scene
       id="a_scene"
       background="color: #d0e8f5"
-      fog="type: linear; color: #c9e8f9; near: 80; far: 300"
       cursor="rayOrigin: mouse; fuse: false;"
       raycaster="objects: .raycastable"
       vr-mode-ui="enabled: false"
@@ -822,20 +821,20 @@
       ></a-entity>
 
       <!-- Sky -->
-      <a-sky color="#87CEEB"></a-sky>
+      <a-sky id="viewerSky" color="#87CEEB"></a-sky>
 
       <!-- Lighting -->
-      <a-light type="ambient" color="#ffffff" intensity="0.8"></a-light>
+      <a-light type="ambient" color="#ffffff" intensity="0.58"></a-light>
       <a-light
         type="directional"
-        color="#fff5e0"
-        intensity="1.2"
+        color="#ffffff"
+        intensity="0.62"
         position="8 15 5"
       ></a-light>
       <a-light
         type="directional"
-        color="#cce8ff"
-        intensity="0.3"
+        color="#ffffff"
+        intensity="0.12"
         position="-5 3 -5"
       ></a-light>
 
@@ -4194,10 +4193,59 @@
 
       // ── Refresh floor list ────────────────────────────────────────────
       // ── A-Frame ready ─────────────────────────────────────────────────
+      function applyViewerSkyBackground() {
+        const skyEl = document.querySelector("#viewerSky");
+        const skyMesh = skyEl?.getObject3D?.("mesh");
+        if (!skyMesh || typeof THREE === "undefined") return;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 1024;
+        canvas.height = 512;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        sky.addColorStop(0, "#5fa9df");
+        sky.addColorStop(0.48, "#a9d5f1");
+        sky.addColorStop(0.72, "#d8eef8");
+        sky.addColorStop(1, "#f4f8fa");
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const sun = ctx.createRadialGradient(760, 120, 10, 760, 120, 220);
+        sun.addColorStop(0, "rgba(255, 249, 214, 0.82)");
+        sun.addColorStop(0.28, "rgba(255, 243, 194, 0.26)");
+        sun.addColorStop(1, "rgba(255, 243, 194, 0)");
+        ctx.fillStyle = sun;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const haze = ctx.createLinearGradient(0, 280, 0, canvas.height);
+        haze.addColorStop(0, "rgba(255, 255, 255, 0)");
+        haze.addColorStop(1, "rgba(255, 255, 255, 0.42)");
+        ctx.fillStyle = haze;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        if (THREE.SRGBColorSpace && "colorSpace" in texture) {
+          texture.colorSpace = THREE.SRGBColorSpace;
+        } else if (THREE.sRGBEncoding && "encoding" in texture) {
+          texture.encoding = THREE.sRGBEncoding;
+        }
+
+        skyMesh.material?.dispose?.();
+        skyMesh.material = new THREE.MeshBasicMaterial({
+          map: texture,
+          side: THREE.BackSide,
+          depthWrite: false,
+          fog: false,
+        });
+      }
+
       function initAFrameReady() {
         if (window.viewerAFrameReady) return;
         window.viewerAFrameReady = true;
         window.scene = document.querySelector("#a_world").object3D;
+        applyViewerSkyBackground();
         initViewerViewportSync();
         setViewerMode("3d");
         initLeftPanelResize();
