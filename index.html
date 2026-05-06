@@ -83,7 +83,7 @@
       }
     </script>
 
-    <link rel="stylesheet" href="assets/css/app.css" />
+    <link rel="stylesheet" href="assets/css/app.css?v=ui-20260506" />
     <link
       rel="stylesheet"
       href="https://cdn-uicons.flaticon.com/3.0.0/uicons-solid-rounded/css/uicons-solid-rounded.css"
@@ -129,7 +129,7 @@
       window.isViewerPointerEvent = function (event) {
         if (!event) return false;
         const uiTarget = event.target?.closest?.(
-          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .memo-wrap, .modal, .ui-popover",
+          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .section-box-panel, .memo-wrap, .modal, .ui-popover",
         );
         if (uiTarget) return false;
         return window.isPointInViewer(event.clientX, event.clientY);
@@ -779,7 +779,7 @@
         },
       });
     </script>
-    <script src="assets/js/bundle.js"></script>
+    <script src="assets/js/bundle.js?v=web-ifc-0.0.35"></script>
     <script src="assets/js/jquery.js"></script>
     <script src="assets/js/simple-navmesh-constraint.js"></script>
     <script src="assets/js/wasd.js"></script>
@@ -1455,8 +1455,22 @@
           >
             <span aria-hidden="true"><i class="fi-sr-ruler-combined"></i></span>
           </button>
+          <button
+            id="sectionBoxBtn"
+            class="rail-btn rail-section-btn"
+            onclick="toggleSectionBox()"
+            title="Section box"
+            aria-label="Section box"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true"><i class="fi-sr-cube"></i></span>
+          </button>
           <span class="rail-spacer" aria-hidden="true"></span>
-          <button class="rail-btn" onclick="openViewerReport()" title="Reports">
+          <button
+            class="rail-btn rail-report-btn"
+            onclick="openViewerReport()"
+            title="Reports"
+          >
             <span aria-hidden="true"><i class="fi-sr-clipboard-list"></i></span>
           </button>
           <a
@@ -1469,7 +1483,11 @@
           >
             <span aria-hidden="true"><i class="fi-sr-user-pen"></i></span>
           </a>
-          <button class="rail-btn" onclick="openAboutPanel()" title="Info">
+          <button
+            class="rail-btn rail-info-btn"
+            onclick="openAboutPanel()"
+            title="Info"
+          >
             <span aria-hidden="true"><i class="fi-sr-info"></i></span>
           </button>
           <button
@@ -1744,7 +1762,7 @@
 
       window.ifcLoader = ifcLoader;
       window.type_subsets = type_subsets; // expose for toggleSchemaEye
-      ifcLoader.ifcManager.setWasmPath("");
+      ifcLoader.ifcManager.setWasmPath("web-ifc-0.0.35/");
 
       var viewerViewportSyncRaf = null;
 
@@ -2831,6 +2849,305 @@
 
       document.addEventListener("pointerdown", handleMeasurePointerDown, true);
 
+      window.sectionBoxState = {
+        enabled: false,
+        cuts: {
+          left: 0,
+          right: 0,
+          bottom: 0,
+          top: 0,
+          back: 0,
+          front: 0,
+        },
+        baseBox: null,
+        activeBox: null,
+        planes: [],
+        helper: null,
+      };
+
+      function isFiniteSectionBox(box) {
+        return (
+          box &&
+          !box.isEmpty() &&
+          Number.isFinite(box.min.x) &&
+          Number.isFinite(box.min.y) &&
+          Number.isFinite(box.min.z) &&
+          Number.isFinite(box.max.x) &&
+          Number.isFinite(box.max.y) &&
+          Number.isFinite(box.max.z)
+        );
+      }
+
+      function getSectionBoxModelRoot() {
+        return document.querySelector("#a_world")?.object3D || null;
+      }
+
+      function getSectionBoxModelBounds() {
+        const root = getSectionBoxModelRoot();
+        if (!root || typeof THREE === "undefined") return null;
+
+        const box = new THREE.Box3();
+        let expanded = false;
+        root.updateMatrixWorld?.(true);
+        root.traverse((object) => {
+          if (!object.visible || !object.geometry) return;
+          const childBox = new THREE.Box3().setFromObject(object);
+          if (!isFiniteSectionBox(childBox)) return;
+          box.union(childBox);
+          expanded = true;
+        });
+        return expanded && isFiniteSectionBox(box) ? box : null;
+      }
+
+      function getSectionCutBox() {
+        const state = window.sectionBoxState;
+        const base = state.baseBox;
+        if (!isFiniteSectionBox(base)) return null;
+
+        const size = base.getSize(new THREE.Vector3());
+        const cuts = state.cuts;
+        const min = new THREE.Vector3(
+          base.min.x + size.x * cuts.left,
+          base.min.y + size.y * cuts.bottom,
+          base.min.z + size.z * cuts.back,
+        );
+        const max = new THREE.Vector3(
+          base.max.x - size.x * cuts.right,
+          base.max.y - size.y * cuts.top,
+          base.max.z - size.z * cuts.front,
+        );
+        return new THREE.Box3(min, max);
+      }
+
+      function ensureSectionBoxPlanes() {
+        const state = window.sectionBoxState;
+        if (state.planes.length === 6) return state.planes;
+        state.planes = [
+          new THREE.Plane(new THREE.Vector3(1, 0, 0), 0),
+          new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
+          new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+          new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
+          new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+          new THREE.Plane(new THREE.Vector3(0, 0, -1), 0),
+        ];
+        return state.planes;
+      }
+
+      function updateSectionBoxPlanes(box) {
+        const planes = ensureSectionBoxPlanes();
+        planes[0].normal.set(1, 0, 0);
+        planes[0].constant = -box.min.x;
+        planes[1].normal.set(-1, 0, 0);
+        planes[1].constant = box.max.x;
+        planes[2].normal.set(0, 1, 0);
+        planes[2].constant = -box.min.y;
+        planes[3].normal.set(0, -1, 0);
+        planes[3].constant = box.max.y;
+        planes[4].normal.set(0, 0, 1);
+        planes[4].constant = -box.min.z;
+        planes[5].normal.set(0, 0, -1);
+        planes[5].constant = box.max.z;
+      }
+
+      function forEachSectionBoxMaterial(callback) {
+        const root = getSectionBoxModelRoot();
+        if (!root) return;
+        const seen = new Set();
+        root.traverse((object) => {
+          if (!object.isMesh || !object.material) return;
+          const materials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+          materials.forEach((material) => {
+            if (!material || seen.has(material)) return;
+            seen.add(material);
+            callback(material);
+          });
+        });
+      }
+
+      function setSectionBoxMaterialState(enabled) {
+        const sceneEl = document.querySelector("#a_scene");
+        if (sceneEl?.renderer) {
+          sceneEl.renderer.localClippingEnabled = enabled;
+        }
+
+        const planes = ensureSectionBoxPlanes();
+        forEachSectionBoxMaterial((material) => {
+          material.userData = material.userData || {};
+          if (enabled) {
+            if (!material.userData.sectionBoxStored) {
+              material.userData.sectionBoxStored = true;
+              material.userData.sectionBoxOriginalClippingPlanes =
+                material.clippingPlanes || null;
+              material.userData.sectionBoxOriginalClipShadows =
+                material.clipShadows;
+            }
+            material.clippingPlanes = planes;
+            material.clipShadows = true;
+          } else if (material.userData.sectionBoxStored) {
+            material.clippingPlanes =
+              material.userData.sectionBoxOriginalClippingPlanes;
+            material.clipShadows =
+              material.userData.sectionBoxOriginalClipShadows;
+            delete material.userData.sectionBoxStored;
+            delete material.userData.sectionBoxOriginalClippingPlanes;
+            delete material.userData.sectionBoxOriginalClipShadows;
+          }
+          material.needsUpdate = true;
+        });
+      }
+
+      function clearSectionBoxHelper() {
+        disposeMeasureObject(window.sectionBoxState.helper);
+        window.sectionBoxState.helper = null;
+      }
+
+      function updateSectionBoxHelper(box) {
+        const root = getMeasureSceneRoot();
+        if (!root || typeof THREE === "undefined") return;
+        clearSectionBoxHelper();
+
+        const helper = new THREE.Box3Helper(box.clone(), 0x0ea5e9);
+        helper.name = "SectionBoxHelper";
+        helper.userData.sectionBoxHelper = true;
+        helper.material.depthTest = false;
+        helper.material.transparent = true;
+        helper.material.opacity = 0.95;
+        helper.renderOrder = 998;
+        root.add(helper);
+        window.sectionBoxState.helper = helper;
+      }
+
+      function syncSectionBoxControls() {
+        const cuts = window.sectionBoxState.cuts;
+        Object.entries(cuts).forEach(([side, value]) => {
+          const percent = Math.round(value * 100);
+          const input = document.querySelector(`[data-section-cut="${side}"]`);
+          const output = document.getElementById(`sectionCut-${side}`);
+          if (input) input.value = String(percent);
+          if (output) output.textContent = `${percent}%`;
+        });
+      }
+
+      function ensureSectionBoxPanel() {
+        let panel = document.getElementById("sectionBoxPanel");
+        if (panel) return panel;
+
+        panel = document.createElement("div");
+        panel.id = "sectionBoxPanel";
+        panel.className = "section-box-panel";
+        panel.innerHTML = `
+          <div class="section-box-head">
+            <span>Section Box</span>
+            <button type="button" onclick="resetSectionBox()">Reset</button>
+            <button type="button" onclick="toggleSectionBox(false)" aria-label="Close section box">&times;</button>
+          </div>
+          <div class="section-box-grid">
+            ${[
+              ["left", "Left"],
+              ["right", "Right"],
+              ["bottom", "Bottom"],
+              ["top", "Top"],
+              ["back", "Back"],
+              ["front", "Front"],
+            ]
+              .map(
+                ([side, label]) => `
+                  <label>
+                    <span>${label}</span>
+                    <input type="range" min="0" max="95" step="1" value="0" data-section-cut="${side}" oninput="setSectionBoxCut('${side}', this.value)" />
+                    <b id="sectionCut-${side}">0%</b>
+                  </label>
+                `,
+              )
+              .join("")}
+          </div>
+        `;
+        document.getElementById("uiCenter")?.appendChild(panel);
+        return panel;
+      }
+
+      function applySectionBox() {
+        const state = window.sectionBoxState;
+        if (!state.enabled) return;
+        const box = getSectionCutBox();
+        if (!isFiniteSectionBox(box)) return;
+
+        state.activeBox = box;
+        updateSectionBoxPlanes(box);
+        setSectionBoxMaterialState(true);
+        updateSectionBoxHelper(box);
+        syncSectionBoxControls();
+      }
+
+      window.setSectionBoxCut = function (side, rawValue) {
+        const state = window.sectionBoxState;
+        if (!state.enabled || !(side in state.cuts)) return;
+
+        const pairs = {
+          left: "right",
+          right: "left",
+          bottom: "top",
+          top: "bottom",
+          back: "front",
+          front: "back",
+        };
+        const opposite = state.cuts[pairs[side]] || 0;
+        const maxValue = Math.max(0, 0.96 - opposite);
+        const next = THREE.MathUtils.clamp(Number(rawValue) / 100, 0, maxValue);
+        state.cuts[side] = next;
+        applySectionBox();
+        window.syncViewerViewport?.();
+      };
+
+      window.resetSectionBox = function () {
+        Object.keys(window.sectionBoxState.cuts).forEach((side) => {
+          window.sectionBoxState.cuts[side] = 0;
+        });
+        applySectionBox();
+      };
+
+      window.toggleSectionBox = function (force) {
+        const next =
+          typeof force === "boolean" ? force : !window.sectionBoxState.enabled;
+        const state = window.sectionBoxState;
+
+        if (next) {
+          const box = getSectionBoxModelBounds();
+          if (!isFiniteSectionBox(box)) {
+            showUiToast("Load a model before using the section box.");
+            return;
+          }
+          Object.keys(state.cuts).forEach((side) => {
+            state.cuts[side] = 0;
+          });
+          state.baseBox = box.clone();
+          state.activeBox = box.clone();
+          state.enabled = true;
+          ensureSectionBoxPanel().classList.add("show");
+          document.getElementById("sectionBoxBtn")?.classList.add("active");
+          document
+            .getElementById("sectionBoxBtn")
+            ?.setAttribute("aria-pressed", "true");
+          if (window.setViewerMode) window.setViewerMode("3d");
+          applySectionBox();
+          showUiToast("Section box enabled.");
+          return;
+        }
+
+        state.enabled = false;
+        state.activeBox = null;
+        setSectionBoxMaterialState(false);
+        clearSectionBoxHelper();
+        document.getElementById("sectionBoxPanel")?.classList.remove("show");
+        document.getElementById("sectionBoxBtn")?.classList.remove("active");
+        document
+          .getElementById("sectionBoxBtn")
+          ?.setAttribute("aria-pressed", "false");
+        window.syncViewerViewport?.();
+      };
+
       // ── Floor teleport ────────────────────────────────────────────────
       window.setFloor = function () {
         const select = document.getElementsByName("floors")[0].value;
@@ -3269,6 +3586,7 @@
         window.activeIfcLoadToken += 1;
         clearMeasurements();
         window.measurePoints = [];
+        if (window.sectionBoxState?.enabled) toggleSectionBox(false);
 
         const activeModelID = getActiveModelId();
         if (typeof mat !== "undefined" && activeModelID != null) {

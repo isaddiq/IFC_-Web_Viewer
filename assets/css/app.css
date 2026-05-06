@@ -47,6 +47,8 @@
 /* Base scale — bumps all rem-based font sizes proportionally */
 html {
   font-size: 15px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   margin: 0;
   padding: 0;
   width: 100%;
@@ -4302,6 +4304,78 @@ a-scene,
   cursor: crosshair;
 }
 
+.section-box-panel {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 13;
+  display: none;
+  width: min(330px, calc(100% - 28px));
+  padding: 12px;
+  border: 1px solid rgba(14, 165, 233, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  pointer-events: auto;
+}
+
+.section-box-panel.show {
+  display: block;
+}
+
+.section-box-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.section-box-head span {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.section-box-head button {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.section-box-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.section-box-grid label {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.section-box-grid input {
+  width: 100%;
+  accent-color: #0ea5e9;
+}
+
+.section-box-grid b {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
 #schemaTree {
   --tree-line: #cbd5e1;
 }
@@ -4585,8 +4659,24 @@ a-scene,
   text-decoration: none;
 }
 
+.rail-section-btn span {
+  --icon-color: #0f766e;
+}
+
+.rail-report-btn span {
+  --icon-color: #e11d48;
+}
+
 .rail-site-btn span {
   --icon-color: var(--icon-system);
+}
+
+.rail-info-btn span {
+  --icon-color: var(--icon-system);
+}
+
+.rail-collapse span {
+  --icon-color: var(--icon-muted);
 }
 
 .rail-btn:hover,
