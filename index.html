@@ -129,7 +129,7 @@
       window.isViewerPointerEvent = function (event) {
         if (!event) return false;
         const uiTarget = event.target?.closest?.(
-          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .section-box-panel, .memo-wrap, .modal, .ui-popover",
+          ".ui-menubar, .ui-ribbon, .ui-left-panel, .ui-right-panel, #view-cube-wrap, .section-box-panel, .ui-popover",
         );
         if (uiTarget) return false;
         return window.isPointInViewer(event.clientX, event.clientY);
@@ -410,8 +410,15 @@
             if (!this.data.enabled) return;
             if (!this._isScenePointerEvent(e)) return;
             e.preventDefault();
-            const factor = e.shiftKey ? 0.01 : 0.05;
-            const nextRadius = this._r + e.deltaY * factor;
+            const wheelPixels =
+              e.deltaMode === 1
+                ? e.deltaY * 16
+                : e.deltaMode === 2
+                  ? e.deltaY * window.innerHeight
+                  : e.deltaY;
+            const clampedDelta = Math.max(-600, Math.min(600, wheelPixels));
+            const zoomRate = e.shiftKey ? 0.0012 : 0.0035;
+            const nextRadius = this._r * Math.exp(clampedDelta * zoomRate);
             if (Number.isFinite(nextRadius)) {
               this._r = Math.max(0.001, nextRadius);
             }
@@ -794,23 +801,12 @@
       });
     </script>
     <script src="assets/js/bundle.js?v=web-ifc-0.0.35"></script>
-    <script src="assets/js/jquery.js"></script>
     <script src="assets/js/simple-navmesh-constraint.js"></script>
     <script src="assets/js/wasd.js"></script>
     <script src="assets/js/cursor_click.js"></script>
     <script src="assets/js/select.js"></script>
     <script src="assets/js/overlay.js"></script>
     <script src="assets/js/buttons.js"></script>
-    <script async src="assets/js/opencv.js" type="text/javascript"></script>
-    <script>
-      if (!window.Promise) window.Promise = { prototype: null };
-    </script>
-    <script
-      src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/1.5.3/jspdf.min.js"
-      integrity="sha512-ToRWKKOvhBSS8EtqSflysM/S7v9bB9V0X3B1+E7xo7XZBEZCPL3VX5SFIp8zxY19r7Sz0svqQVbAOx+QcLQSAQ=="
-      crossorigin="anonymous"
-    ></script>
-    <script src="assets/js/malgun-normal.js"></script>
   </head>
 
   <body>
@@ -1743,8 +1739,8 @@
         >
       </div>
 
-      <!-- compat shim: cursor_click.js uses #psetInfo for panel-open class;
-           ifcMemo* elements are needed by cursor_click.js + memo.js -->
+      <!-- compat shim: cursor_click.js uses #psetInfo for panel-open class
+           and writes legacy hidden selection fields. -->
       <div id="psetInfo" style="display: none"></div>
       <span id="ifcMemoLevelInfo" style="display: none"></span>
       <span id="ifcMemoTypeInfo" style="display: none"></span>
@@ -2984,35 +2980,42 @@
         });
       }
 
+      function syncSectionBoxMaterial(material, enabled = window.sectionBoxState?.enabled === true) {
+        if (!material) return;
+        const planes = ensureSectionBoxPlanes();
+        material.userData = material.userData || {};
+        if (enabled) {
+          if (!material.userData.sectionBoxStored) {
+            material.userData.sectionBoxStored = true;
+            material.userData.sectionBoxOriginalClippingPlanes =
+              material.clippingPlanes || null;
+            material.userData.sectionBoxOriginalClipShadows =
+              material.clipShadows;
+          }
+          material.clippingPlanes = planes;
+          material.clipShadows = true;
+        } else if (material.userData.sectionBoxStored) {
+          material.clippingPlanes =
+            material.userData.sectionBoxOriginalClippingPlanes;
+          material.clipShadows =
+            material.userData.sectionBoxOriginalClipShadows;
+          delete material.userData.sectionBoxStored;
+          delete material.userData.sectionBoxOriginalClippingPlanes;
+          delete material.userData.sectionBoxOriginalClipShadows;
+        }
+        material.needsUpdate = true;
+      }
+
+      window.syncSectionBoxMaterial = syncSectionBoxMaterial;
+
       function setSectionBoxMaterialState(enabled) {
         const sceneEl = document.querySelector("#a_scene");
         if (sceneEl?.renderer) {
           sceneEl.renderer.localClippingEnabled = enabled;
         }
 
-        const planes = ensureSectionBoxPlanes();
         forEachSectionBoxMaterial((material) => {
-          material.userData = material.userData || {};
-          if (enabled) {
-            if (!material.userData.sectionBoxStored) {
-              material.userData.sectionBoxStored = true;
-              material.userData.sectionBoxOriginalClippingPlanes =
-                material.clippingPlanes || null;
-              material.userData.sectionBoxOriginalClipShadows =
-                material.clipShadows;
-            }
-            material.clippingPlanes = planes;
-            material.clipShadows = true;
-          } else if (material.userData.sectionBoxStored) {
-            material.clippingPlanes =
-              material.userData.sectionBoxOriginalClippingPlanes;
-            material.clipShadows =
-              material.userData.sectionBoxOriginalClipShadows;
-            delete material.userData.sectionBoxStored;
-            delete material.userData.sectionBoxOriginalClippingPlanes;
-            delete material.userData.sectionBoxOriginalClipShadows;
-          }
-          material.needsUpdate = true;
+          syncSectionBoxMaterial(material, enabled);
         });
       }
 

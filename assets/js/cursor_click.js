@@ -745,6 +745,36 @@ function __isUsableIfcBox(box) {
   );
 }
 
+function __getActiveSelectionSectionBox() {
+  const state = window.sectionBoxState;
+  const box = state?.enabled ? state.activeBox : null;
+  return __isUsableIfcBox(box) ? box : null;
+}
+
+function __isPointInsideIfcBox(point, box, tolerance) {
+  return (
+    point &&
+    Number.isFinite(point.x) &&
+    Number.isFinite(point.y) &&
+    Number.isFinite(point.z) &&
+    point.x >= box.min.x - tolerance &&
+    point.x <= box.max.x + tolerance &&
+    point.y >= box.min.y - tolerance &&
+    point.y <= box.max.y + tolerance &&
+    point.z >= box.min.z - tolerance &&
+    point.z <= box.max.z + tolerance
+  );
+}
+
+function __filterIfcRaycastHits(hits) {
+  const visibleHits = (hits || []).filter((hit) => hit.object?.visible === true);
+  const box = __getActiveSelectionSectionBox();
+  if (!box || typeof THREE === 'undefined') return visibleHits;
+
+  const tolerance = Math.max(box.getSize(new THREE.Vector3()).length() * 1e-6, 0.001);
+  return visibleHits.filter((hit) => __isPointInsideIfcBox(hit.point, box, tolerance));
+}
+
 function __storeIfcSelectionBounds(modelid, expressID, subset, fallbackPoint) {
   const point = __normalizeIfcSelectionPoint(fallbackPoint);
   let bounds = null;
@@ -811,6 +841,7 @@ async function __renderIfcSelection(modelid, expressID, options = {}) {
       ? options.highlightIds.map(Number).filter(Number.isFinite)
       : [Number(expressID)];
     try {
+      window.syncSectionBoxMaterial?.(mat);
       const highlightSubset = ifc.createSubset({
         modelID: modelid,
         ids: highlightIDs,
@@ -918,7 +949,7 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
     }
 
 
-    // 이 함수 바깥(memo.js)에서 사용하기 위해 전역 변수로 정의 
+    // Shared selection hit for the property and color handlers below.
     let intersects = null;
 
 
@@ -952,7 +983,7 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
       }
 
       if (scene != null && raycaster != null) {
-        let isects = raycaster.intersectObject(scene)?.filter(o_ => o_.object?.visible == true); // 아직 load되지 않은 object는 클릭되지 않게
+        let isects = __filterIfcRaycastHits(raycaster.intersectObject(scene)); // 아직 load되지 않은 object는 클릭되지 않게
         intersects = (isects != null && isects.length > 0) ? isects[0] : null;
       }
       else
@@ -997,6 +1028,7 @@ window.selectIfcElementByExpressId = async function (expressID, options = {}) {
         // }
 
         // 객체를 항상 하이라이트하기 위해 조건문을 제거하고 ifc.createSubset 호출
+        window.syncSectionBoxMaterial?.(mat);
         const highlightSubset = ifc.createSubset({
            modelID: modelid,
           ids: exIds,

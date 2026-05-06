@@ -84,12 +84,10 @@
 
 ### 🗺️ Additional Tools
 
-- **Floor plan overlay** generation
-- **Memo / annotation** system for leaving notes on elements
-- **Cost range** tagging
-- **Search by date** / task workflow utilities
-- **Tooltip** system for element names
-- **jsPDF** integration for report export
+- **Measure tool** for picking two model points and reading distance
+- **Section box** clipping controls for isolating part of the model
+- **Viewer report** summary with JSON and CSV export
+- **Share link** action for copying or using the browser share sheet
 
 ### 🌍 Visitor Statistics
 
@@ -114,9 +112,6 @@
 | [web-ifc](https://github.com/IFCjs/web-ifc)             | IFC geometry parser (WASM)              |
 | [web-ifc-three](https://github.com/IFCjs/web-ifc-three) | Three.js IFC loader & subset management |
 | [Three.js](https://threejs.org/)                        | 3D rendering                            |
-| [jsPDF](https://github.com/parallax/jsPDF)              | PDF export                              |
-| OpenCV.js                                               | Vision utilities                        |
-| jQuery                                                  | DOM utilities                           |
 
 ---
 
@@ -163,7 +158,7 @@ python -m http.server 8080
 
 Then open `http://localhost:8080` in a modern browser (Chrome, Edge, or Firefox recommended).
 
-> **Note:** The WASM files (`web-ifc.wasm`, `web-ifc-mt.wasm`) and the IFC worker must be present in `assets/js/`. The `npm run build` step copies them automatically via the `copy-runtime` script.
+> **Note:** The WASM files (`web-ifc.wasm`, `web-ifc-mt.wasm`) must be present in `assets/js/`. The `npm run build` step copies them automatically via the `copy-runtime` script.
 
 ---
 
@@ -184,14 +179,9 @@ IFC_Web_Viewer/
         ├── select.js       # Subset selection helpers
         ├── overlay.js      # UI overlay management
         ├── wasd.js         # Custom WASD movement controls
-        ├── floorplan.js    # Floor plan generation
-        ├── memo.js         # Annotation system
-        ├── memoWorks.js    # Annotation persistence
-        ├── tooltip.js      # Element tooltips
-        ├── costRange.js    # Cost tagging
-        ├── searchDate.js   # Date-based search
-        ├── task.js         # Task workflow
-        ├── updateInfo.js   # Property panel updates
+        ├── simple-navmesh-constraint.js
+        ├── web-ifc.wasm
+        ├── web-ifc-mt.wasm
         └── ...
 ```
 

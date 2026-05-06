@@ -18,7 +18,7 @@
   "scripts": {
     "build": "rollup -c && npm run copy-runtime",
     "watch": "rollup -c -w",
-    "copy-runtime": "cpy node_modules/web-ifc/web-ifc.wasm assets/js && cpy node_modules/web-ifc/web-ifc-mt.wasm assets/js && cpy node_modules/web-ifc/web-ifc.wasm assets/js/web-ifc-0.0.35 && cpy node_modules/web-ifc/web-ifc-mt.wasm assets/js/web-ifc-0.0.35 && cpy node_modules/web-ifc-three/IFCWorker.js assets/js && cpy node_modules/web-ifc-three/IFCWorker.js.map assets/js"
+    "copy-runtime": "cpy node_modules/web-ifc/web-ifc.wasm assets/js && cpy node_modules/web-ifc/web-ifc-mt.wasm assets/js && cpy node_modules/web-ifc/web-ifc.wasm assets/js/web-ifc-0.0.35 && cpy node_modules/web-ifc/web-ifc-mt.wasm assets/js/web-ifc-0.0.35"
   },
   "dependencies": {
     "aframe-click-drag-component": "^3.0.1",
