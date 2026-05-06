@@ -4581,6 +4581,14 @@ a-scene,
   --icon-color: var(--icon-muted);
 }
 
+.rail-site-btn {
+  text-decoration: none;
+}
+
+.rail-site-btn span {
+  --icon-color: var(--icon-system);
+}
+
 .rail-btn:hover,
 .rail-btn.active {
   background: rgba(37, 99, 235, 0.08) !important;

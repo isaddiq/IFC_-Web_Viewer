@@ -1449,7 +1449,9 @@
             id="measureToolBtn"
             class="rail-btn"
             onclick="toggleMeasureMode()"
-            title="Measure"
+            title="Measure distance"
+            aria-label="Measure distance"
+            aria-pressed="false"
           >
             <span aria-hidden="true"><i class="fi-sr-ruler-combined"></i></span>
           </button>
@@ -1457,6 +1459,16 @@
           <button class="rail-btn" onclick="openViewerReport()" title="Reports">
             <span aria-hidden="true"><i class="fi-sr-clipboard-list"></i></span>
           </button>
+          <a
+            class="rail-btn rail-site-btn"
+            href="https://isaddiq.github.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Author site"
+            aria-label="Open author site"
+          >
+            <span aria-hidden="true"><i class="fi-sr-user-pen"></i></span>
+          </a>
           <button class="rail-btn" onclick="openAboutPanel()" title="Info">
             <span aria-hidden="true"><i class="fi-sr-info"></i></span>
           </button>
@@ -2458,6 +2470,8 @@
 
       window.measureMode = false;
       window.measurePoints = [];
+      window.measureObjects = [];
+      window.measurePendingObject = null;
       window.forcePanMode = false;
 
       window.togglePanMode = function (force) {
@@ -2489,6 +2503,238 @@
         return `${distance.toFixed(3)} m`;
       }
 
+      function getMeasurePointerClient(event) {
+        const point =
+          event?.targetTouches?.[0] ||
+          event?.changedTouches?.[0] ||
+          event;
+        return point
+          ? { x: Number(point.clientX), y: Number(point.clientY) }
+          : null;
+      }
+
+      function getMeasureProjectedPoint(point, camera, rect) {
+        const projected = point.clone().project(camera);
+        if (projected.z < -1 || projected.z > 1) return null;
+        return {
+          x: rect.left + ((projected.x + 1) * rect.width) / 2,
+          y: rect.top + ((1 - projected.y) * rect.height) / 2,
+        };
+      }
+
+      function findNearestMeasureVertex(root, camera, event, snapPixels = 18) {
+        if (!root || !camera || typeof THREE === "undefined") return null;
+        const pointer = getMeasurePointerClient(event);
+        const rect = window.getViewerViewportRect?.();
+        if (
+          !pointer ||
+          !rect ||
+          !Number.isFinite(pointer.x) ||
+          !Number.isFinite(pointer.y)
+        ) {
+          return null;
+        }
+
+        let best = null;
+        let bestDistanceSq = snapPixels * snapPixels;
+        const local = new THREE.Vector3();
+        const worldPoint = new THREE.Vector3();
+        root.updateMatrixWorld?.(true);
+        root.traverse((object) => {
+          if (!object.isMesh || object.visible === false) return;
+          const position = object.geometry?.attributes?.position;
+          if (!position) return;
+
+          object.updateMatrixWorld?.(true);
+          for (let index = 0; index < position.count; index += 1) {
+            local.fromBufferAttribute(position, index);
+            worldPoint.copy(local).applyMatrix4(object.matrixWorld);
+            const screenPoint = getMeasureProjectedPoint(
+              worldPoint,
+              camera,
+              rect,
+            );
+            if (!screenPoint) continue;
+            const dx = screenPoint.x - pointer.x;
+            const dy = screenPoint.y - pointer.y;
+            const distanceSq = dx * dx + dy * dy;
+            if (distanceSq <= bestDistanceSq) {
+              bestDistanceSq = distanceSq;
+              best = worldPoint.clone();
+            }
+          }
+        });
+        return best;
+      }
+
+      function getMeasureSceneRoot() {
+        return document.querySelector("#a_scene")?.object3D || null;
+      }
+
+      function disposeMeasureObject(object) {
+        if (!object) return;
+        object.traverse?.((child) => {
+          if (child.geometry) child.geometry.dispose();
+          const materials = Array.isArray(child.material)
+            ? child.material
+            : child.material
+              ? [child.material]
+              : [];
+          materials.forEach((material) => {
+            if (material.map) material.map.dispose();
+            material.dispose?.();
+          });
+        });
+        object.parent?.remove(object);
+      }
+
+      function clearMeasurePreview() {
+        disposeMeasureObject(window.measurePendingObject);
+        window.measurePendingObject = null;
+      }
+
+      function clearMeasurements() {
+        clearMeasurePreview();
+        window.measureObjects.forEach(disposeMeasureObject);
+        window.measureObjects = [];
+      }
+
+      function getMeasureMarkerRadius(distance = 0) {
+        let referenceSize = distance;
+        const world = document.querySelector("#a_world")?.object3D;
+        if (world) {
+          const box = new THREE.Box3().setFromObject(world);
+          if (!box.isEmpty()) {
+            referenceSize = Math.max(
+              referenceSize,
+              box.getSize(new THREE.Vector3()).length(),
+            );
+          }
+        }
+        return THREE.MathUtils.clamp(referenceSize * 0.003, 0.04, 0.18);
+      }
+
+      function createMeasureMarker(point, radius) {
+        const marker = new THREE.Mesh(
+          new THREE.SphereGeometry(radius, 20, 14),
+          new THREE.MeshBasicMaterial({
+            color: 0x2563eb,
+            depthTest: false,
+            depthWrite: false,
+          }),
+        );
+        marker.position.copy(point);
+        marker.renderOrder = 1000;
+        return marker;
+      }
+
+      function createMeasureLabel(text, worldWidth) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 160;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+        ctx.lineWidth = 8;
+        const radius = 56;
+        const x = 18;
+        const y = 28;
+        const w = canvas.width - 36;
+        const h = canvas.height - 56;
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + w - radius, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        ctx.lineTo(x + w, y + h - radius);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        ctx.lineTo(x + radius, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "700 54px system-ui, -apple-system, Segoe UI, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.anisotropy = 4;
+        const label = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+          }),
+        );
+        label.scale.set(worldWidth, worldWidth * 0.3125, 1);
+        label.renderOrder = 1001;
+        return label;
+      }
+
+      function showMeasurePending(point) {
+        const root = getMeasureSceneRoot();
+        if (!root || typeof THREE === "undefined") return;
+        clearMeasurePreview();
+        const group = new THREE.Group();
+        group.add(createMeasureMarker(point, getMeasureMarkerRadius()));
+        root.add(group);
+        window.measurePendingObject = group;
+      }
+
+      function showMeasureResult(start, end) {
+        const root = getMeasureSceneRoot();
+        if (!root || typeof THREE === "undefined") return;
+        clearMeasurements();
+
+        const distance = start.distanceTo(end);
+        const radius = getMeasureMarkerRadius(distance);
+        const group = new THREE.Group();
+        group.add(createMeasureMarker(start, radius));
+        group.add(createMeasureMarker(end, radius));
+
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+          start,
+          end,
+        ]);
+        const line = new THREE.Line(
+          lineGeometry,
+          new THREE.LineDashedMaterial({
+            color: 0x2563eb,
+            dashSize: Math.max(radius * 5, 0.18),
+            gapSize: Math.max(radius * 2.5, 0.09),
+            transparent: true,
+            opacity: 0.95,
+            depthTest: false,
+            depthWrite: false,
+          }),
+        );
+        line.computeLineDistances();
+        line.renderOrder = 999;
+        group.add(line);
+
+        const labelWidth = THREE.MathUtils.clamp(distance * 0.22, 0.9, 3.4);
+        const label = createMeasureLabel(
+          formatMeasureDistance(distance),
+          labelWidth,
+        );
+        if (label) {
+          label.position.copy(start).add(end).multiplyScalar(0.5);
+          label.position.y += radius * 3;
+          group.add(label);
+        }
+
+        root.add(group);
+        window.measureObjects.push(group);
+      }
+
       function getMeasurePointFromEvent(event) {
         const ndc = window.getViewerPointerNdc?.(event);
         const sceneEl = document.querySelector("#a_scene");
@@ -2501,9 +2747,21 @@
         raycaster.setFromCamera(ndc, camera);
         const world = document.querySelector("#a_world")?.object3D;
         if (world) {
-          const hit = raycaster
+          world.updateMatrixWorld(true);
+          const hits = raycaster
             .intersectObject(world, true)
-            .find((item) => item.object?.visible !== false);
+            .filter((item) => item.object?.visible !== false);
+          const hit = hits[0];
+          if (hit?.object) {
+            const vertex = findNearestMeasureVertex(
+              hit.object,
+              camera,
+              event,
+            );
+            if (vertex) return vertex;
+          }
+          const nearbyVertex = findNearestMeasureVertex(world, camera, event);
+          if (nearbyVertex) return nearbyVertex;
           if (hit?.point) return hit.point.clone();
         }
 
@@ -2516,6 +2774,7 @@
         const next = typeof force === "boolean" ? force : !window.measureMode;
         window.measureMode = next;
         window.measurePoints = [];
+        clearMeasurements();
         if (next) {
           window.forcePanMode = false;
           document.getElementById("panToolBtn")?.classList.remove("active");
@@ -2523,6 +2782,9 @@
         document
           .getElementById("measureToolBtn")
           ?.classList.toggle("active", next);
+        document
+          .getElementById("measureToolBtn")
+          ?.setAttribute("aria-pressed", String(next));
         document
           .getElementById("overlay")
           ?.classList.toggle("measure-active", next);
@@ -2539,6 +2801,7 @@
       function handleMeasurePointerDown(event) {
         if (!window.measureMode || !window.isViewerPointerEvent?.(event))
           return;
+        if (event.pointerType === "mouse" && event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
         const point = getMeasurePointFromEvent(event);
@@ -2547,9 +2810,11 @@
           return;
         }
 
+        if (window.measurePoints.length === 0) clearMeasurements();
         window.measurePoints.push(point);
         const readout = ensureMeasureReadout();
         if (window.measurePoints.length === 1) {
+          showMeasurePending(point);
           readout.textContent = "Measure: pick second point";
           readout.classList.add("show");
           return;
@@ -2559,6 +2824,7 @@
         readout.textContent = `Distance ${formatMeasureDistance(
           start.distanceTo(end),
         )}`;
+        showMeasureResult(start, end);
         readout.classList.add("show");
         window.measurePoints = [];
       }
@@ -2900,7 +3166,7 @@
         try {
           window.ifcSpatialStructure = await readSpatialStructure(
             modelID,
-            true,
+            false,
           );
         } catch (e) {
           console.warn("getSpatialStructure error:", e);
@@ -3001,6 +3267,8 @@
       // ── Clear previous model before loading a new one ─────────────────
       function clearModel() {
         window.activeIfcLoadToken += 1;
+        clearMeasurements();
+        window.measurePoints = [];
 
         const activeModelID = getActiveModelId();
         if (typeof mat !== "undefined" && activeModelID != null) {
@@ -3525,7 +3793,7 @@
           }
           const ifcProject =
             window.ifcSpatialStructure ||
-            (await readSpatialStructure(modelID, true));
+            (await readSpatialStructure(modelID, false));
 
           window.ifcSpatialStructure = ifcProject;
 
