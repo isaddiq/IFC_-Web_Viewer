@@ -171,13 +171,27 @@
         init: function () {
           var s = this.el.object3D;
           if (this.data.grid) {
+            var ground = new THREE.Mesh(
+              new THREE.PlaneGeometry(this.data.gridSize, this.data.gridSize),
+              new THREE.MeshLambertMaterial({
+                color: 0xd8d5c9,
+                transparent: false,
+                depthWrite: true,
+              }),
+            );
+            ground.name = "GridGround";
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -0.04;
+            ground.receiveShadow = true;
+            s.add(ground);
+
             var grid = new THREE.GridHelper(
               this.data.gridSize,
               this.data.gridDivisions,
-              0x888888,
-              0xcccccc,
+              0x6f756f,
+              0xa9ada6,
             );
-            grid.position.y = -0.01;
+            grid.position.y = -0.02;
             s.add(grid);
           }
           if (this.data.axes) {
@@ -2197,7 +2211,12 @@
         const sceneObj = document.querySelector("#a_scene")?.object3D;
         if (!sceneObj) return;
         sceneObj.traverse((object) => {
-          if (object.type === type) object.visible = visible;
+          if (
+            object.type === type ||
+            (type === "GridHelper" && object.name === "GridGround")
+          ) {
+            object.visible = visible;
+          }
         });
       }
 
