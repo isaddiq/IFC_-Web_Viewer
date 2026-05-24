@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="description" content="A static IFC viewer for inspecting BIM geometry, metadata, selections, sections, measurements, and schema data in the browser." />
+<title>IFC Static Web Viewer</title>
+<link rel="icon" type="image/png" href="assets/logos/ifc-logo.png" />
+<!-- Preload IFC runtime assets so they are already in-flight when the app requests them -->
+<link rel="preload" href="assets/js/ifc-loader-bundle.js?v=web-ifc-0.0.35" as="script" />
+<link rel="preload" href="assets/js/web-ifc-0.0.35/web-ifc.wasm" as="fetch" crossorigin="anonymous" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/css/main.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+window.THREE = THREE;
+
+const appScripts = [
+  'assets/js/compiled/core/model.js',
+  'assets/js/compiled/core/ifcloader.js',
+  'assets/js/compiled/viewer/viewer.js',
+  'assets/js/compiled/ui/icons.js',
+  'assets/js/compiled/ui/panels.js',
+  'assets/js/compiled/app.js',
+];
+
+for (const src of appScripts) {
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+</script>
+<script>
+const { useCallback, useEffect, useMemo, useReducer, useRef, useState } = React;
+</script>
+</head>
+<body>
+<main id="root"></main>
+<noscript>This IFC viewer requires JavaScript.</noscript>
+
+<div id="vc-popover" class="vc-popover" role="dialog" aria-label="Visitor Statistics">
+  <div class="vc-popover-top">
+    <span>Visitor Statistics</span>
+    <button
+      type="button"
+      class="vc-pop-close"
+      onclick="document.getElementById('vc-popover').classList.remove('vc-open')"
+      aria-label="Close visitor statistics"
+    >
+      &times;
+    </button>
+  </div>
+  <a
+    href="http://s01.flagcounter.com/more/2uk"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="vc-flag-link"
+    title="Click to see full analytics"
+  >
+    <img
+      src="https://s01.flagcounter.com/count2/2uk/bg_161b22/txt_e6edf3/border_30363d/columns_4/maxflags_20/viewers_0/labels_1/pageviews_1/flags_0/percent_0/"
+      alt="Flag Counter - visitor statistics by country"
+      class="vc-flag-img"
+    />
+  </a>
+</div>
+
+</body>
+</html>

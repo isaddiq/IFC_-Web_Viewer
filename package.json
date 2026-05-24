@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "npx --yes esbuild assets/js/core/model.jsx --outfile=assets/js/compiled/core/model.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning && npx --yes esbuild assets/js/core/ifcloader.jsx --outfile=assets/js/compiled/core/ifcloader.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning && npx --yes esbuild assets/js/viewer/viewer.jsx --outfile=assets/js/compiled/viewer/viewer.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning && npx --yes esbuild assets/js/ui/icons.jsx --outfile=assets/js/compiled/ui/icons.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning && npx --yes esbuild assets/js/ui/panels.jsx --outfile=assets/js/compiled/ui/panels.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning && npx --yes esbuild assets/js/app.jsx --outfile=assets/js/compiled/app.js --format=iife --target=es2018 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --log-level=warning"
+  }
+}
